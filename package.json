@@ -64,8 +64,7 @@
     "util": "latest",
     "uuid": "latest",
     "vaul": "latest",
-"yt-dlp-exec": "^1.0.0",
-
+    "yt-dlp-exec": "^1.0.0",
     "zod": "latest"
   },
   "devDependencies": {
