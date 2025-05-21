@@ -417,13 +417,16 @@ export function MontageGenerator() {
       {(jobId || jobError) && (
         <Card>
           <CardContent className="pt-6 space-y-4">
-            {jobId && (
-              <div>
-                <h3 className="text-lg font-medium">Job Status: {jobStatus}</h3>
-                <Progress value={jobProgress} className="mt-2" />
-                <p className="text-sm text-gray-500 mt-1">Progress: {jobProgress}%</p>
-              </div>
-            )}
+            {jobId && (() => {
+              console.log("jobProgress type:", typeof jobProgress, jobProgress)
+              return (
+                <div>
+                  <h3 className="text-lg font-medium">Job Status: {jobStatus}</h3>
+                  <Progress value={jobProgress} className="mt-2" />
+                  <p className="text-sm text-gray-500 mt-1">Progress: {jobProgress}%</p>
+                </div>
+              )
+            })()}
 
             {jobError && (
               <Alert variant="destructive">
