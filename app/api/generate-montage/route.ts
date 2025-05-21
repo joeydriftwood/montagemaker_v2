@@ -5,28 +5,17 @@ import fs from "fs/promises";
 import { exec } from "child_process";
 import path from "path";
 import os from "os";
-import ytdlp from "yt-dlp-exec";
 
 function downloadVideo(url: string, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const yt = url.includes("youtube.com") || url.includes("youtu.be");
     const dropbox = url.includes("dropbox.com");
     const finalUrl = dropbox ? url.replace("?dl=0", "?dl=1") : url;
 
-    if (yt) {
-      ytdlp(finalUrl, {
-        output: outputPath,
-        format: "best",
-      })
-        .then(() => resolve())
-        .catch(reject);
-    } else {
-      const cmd = `curl -L "${finalUrl}" --output "${outputPath}"`;
-      exec(cmd, (error) => {
-        if (error) reject(error);
-        else resolve();
-      });
-    }
+    const cmd = `curl -L "${finalUrl}" --output "${outputPath}"`;
+    exec(cmd, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
   });
 }
 
