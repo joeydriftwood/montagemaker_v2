@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -12,32 +12,8 @@ import { AlertCircle, Download, Loader2, Plus, Trash2 } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useToast } from "@/hooks/use-toast"
 
-// Simulate job storage for preview mode
-const previewJobs = new Map<
-  string,
-  {
-    status: "pending" | "processing" | "completed" | "failed"
-    progress: number
-    error?: string
-    downloadUrl?: string
-  }
->()
-
 export function MontageGenerator() {
   const { toast } = useToast()
-  const [isPreviewMode, setIsPreviewMode] = useState(false)
-
-  // Check if we're in preview mode
-  useEffect(() => {
-    // Check if we're in a preview environment
-    const isPreview =
-      window.location.hostname.includes("vercel") ||
-      window.location.hostname.includes("localhost") ||
-      window.location.hostname.includes("vusercontent.com")
-
-    setIsPreviewMode(isPreview)
-    console.log("Preview mode:", isPreview)
-  }, [])
 
   // Form state
   const [videoLinks, setVideoLinks] = useState<string[]>([""])
@@ -85,53 +61,6 @@ export function MontageGenerator() {
     setVideoLinks(newLinks)
   }
 
-  // Simulate job processing for preview mode
-  const simulateJobProcessing = (jobId: string) => {
-    // Initialize job
-    previewJobs.set(jobId, {
-      status: "pending",
-      progress: 0,
-    })
-
-    // Simulate processing
-    let progress = 0
-    const interval = setInterval(() => {
-      progress += 10
-
-      if (progress <= 90) {
-        previewJobs.set(jobId, {
-          status: "processing",
-          progress,
-        })
-      } else {
-        clearInterval(interval)
-        previewJobs.set(jobId, {
-          status: "completed",
-          progress: 100,
-          downloadUrl: `https://example.com/simulated-montage-${jobId}.mp4`,
-        })
-
-        // Create a sample file for download
-        setTimeout(() => {
-          const sampleFile = new Blob(["This is a sample montage file"], { type: "video/mp4" })
-          const url = URL.createObjectURL(sampleFile)
-          const a = document.createElement("a")
-          a.href = url
-          a.download = "sample-montage.mp4"
-          document.body.appendChild(a)
-          a.click()
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
-        }, 500)
-      }
-    }, 200) // Speed up the simulation for better UX
-  }
-
-  // Get job status for preview mode
-  const getPreviewJobStatus = (jobId: string) => {
-    return previewJobs.get(jobId)
-  }
-
   // Generate montage on the server
   const generateMontage = async () => {
     if (videoLinks[0].trim() === "") {
@@ -151,43 +80,6 @@ export function MontageGenerator() {
     setDownloadUrl("")
 
     try {
-      // Generate a unique job ID
-      const generatedJobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-
-      if (isPreviewMode) {
-        console.log("Running in preview mode - simulating API")
-        // Simulate API in preview mode
-        simulateJobProcessing(generatedJobId)
-        setJobId(generatedJobId)
-
-        // Start polling for simulated job status
-        const statusInterval = setInterval(() => {
-          const jobStatus = getPreviewJobStatus(generatedJobId)
-          if (jobStatus) {
-            setJobStatus(jobStatus.status)
-            setJobProgress(jobStatus.progress)
-
-            if (jobStatus.downloadUrl) {
-              setDownloadUrl(jobStatus.downloadUrl)
-            }
-
-            if (jobStatus.status === "completed" || jobStatus.status === "failed") {
-              clearInterval(statusInterval)
-              setIsGenerating(jobStatus.status !== "failed")
-
-              if (jobStatus.status === "completed") {
-                toast({
-                  title: "Success",
-                  description: "Your montage is ready to download! (Simulated in preview mode)",
-                })
-              }
-            }
-          }
-        }, 200) // Speed up the polling for better UX
-
-        return
-      }
-
       console.log("Sending request to /api/generate-montage")
 
       const response = await fetch("/api/generate-montage", {
@@ -221,7 +113,7 @@ export function MontageGenerator() {
         // Handle non-JSON response
         const text = await response.text()
         console.error("Non-JSON response:", text.substring(0, 500))
-        throw new Error(`Server returned non-JSON response (${response.status}). Falling back to preview mode.`)
+        throw new Error(`Server returned non-JSON response (${response.status}).`)
       }
 
       const data = await response.json()
@@ -310,42 +202,6 @@ export function MontageGenerator() {
       }, 2000)
     } catch (error) {
       console.error("Error starting montage generation:", error)
-
-      if (isPreviewMode || error.message.includes("Falling back to preview mode")) {
-        // If we're in preview mode or need to fall back to it, simulate the process
-        console.log("Falling back to preview mode simulation")
-        const generatedJobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-        simulateJobProcessing(generatedJobId)
-        setJobId(generatedJobId)
-
-        // Start polling for simulated job status
-        const statusInterval = setInterval(() => {
-          const jobStatus = getPreviewJobStatus(generatedJobId)
-          if (jobStatus) {
-            setJobStatus(jobStatus.status)
-            setJobProgress(jobStatus.progress)
-
-            if (jobStatus.downloadUrl) {
-              setDownloadUrl(jobStatus.downloadUrl)
-            }
-
-            if (jobStatus.status === "completed" || jobStatus.status === "failed") {
-              clearInterval(statusInterval)
-              setIsGenerating(jobStatus.status !== "failed")
-
-              if (jobStatus.status === "completed") {
-                toast({
-                  title: "Success",
-                  description: "Your montage is ready to download! (Simulated in preview mode)",
-                })
-              }
-            }
-          }
-        }, 200)
-
-        return
-      }
-
       setIsGenerating(false)
       setJobStatus("failed")
       setJobError(error.message || "Failed to start montage generation")
@@ -359,15 +215,6 @@ export function MontageGenerator() {
 
   return (
     <div className="space-y-8">
-      {isPreviewMode && (
-        <Alert>
-          <AlertTitle>Preview Mode</AlertTitle>
-          <AlertDescription>
-            Running in preview mode. API calls will be simulated and no actual video processing will occur.
-          </AlertDescription>
-        </Alert>
-      )}
-
       <Card>
         <CardContent className="pt-6">
           <div className="space-y-6">
@@ -556,10 +403,8 @@ export function MontageGenerator() {
               {isGenerating ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {isPreviewMode ? "Simulating Montage Generation..." : "Generating Montage..."}
+                  Generating Montage...
                 </>
-              ) : isPreviewMode ? (
-                "Simulate Montage Generation"
               ) : (
                 "Generate Montage"
               )}
@@ -577,11 +422,6 @@ export function MontageGenerator() {
                 <h3 className="text-lg font-medium">Job Status: {jobStatus}</h3>
                 <Progress value={jobProgress} className="mt-2" />
                 <p className="text-sm text-gray-500 mt-1">Progress: {jobProgress}%</p>
-                {isPreviewMode && (
-                  <p className="text-xs text-amber-500 mt-1">
-                    Note: This is a simulated process in preview mode. No actual video processing is occurring.
-                  </p>
-                )}
               </div>
             )}
 
@@ -595,20 +435,13 @@ export function MontageGenerator() {
 
             {downloadUrl && (
               <div className="flex flex-col items-center space-y-2">
-                <p className="text-green-600 font-medium">
-                  {isPreviewMode ? "Your simulated montage is ready!" : "Your montage is ready!"}
-                </p>
+                <p className="text-green-600 font-medium">Your montage is ready!</p>
                 <Button asChild>
                   <a href={downloadUrl} download={customFilename || "montage.mp4"}>
                     <Download className="mr-2 h-4 w-4" />
-                    {isPreviewMode ? "Download Simulated Montage" : "Download Montage"}
+                    Download Montage
                   </a>
                 </Button>
-                {isPreviewMode && (
-                  <p className="text-xs text-gray-500">
-                    Note: In preview mode, this will download a sample file, not an actual processed video.
-                  </p>
-                )}
               </div>
             )}
           </CardContent>
