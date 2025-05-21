@@ -1,15 +1,42 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
-import { ClipboardCopy, Download, Youtube } from "lucide-react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
-import { Card, CardContent } from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
+import { AlertCircle, Download, Loader2, Youtube } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { useToast } from "@/hooks/use-toast"
+
+// Simulate job storage for preview mode
+const previewJobs = new Map<
+  string,
+  {
+    status: "pending" | "processing" | "completed" | "failed"
+    progress: number
+    error?: string
+    downloadUrl?: string
+  }
+>()
 
 export function ReactionSplitGenerator() {
+  const { toast } = useToast()
+  const [isPreviewMode, setIsPreviewMode] = useState(false)
+
+  // Check if we're in preview mode
+  useEffect(() => {
+    // Check if we're in a preview environment
+    const isPreview =
+      window.location.hostname.includes("vercel") ||
+      window.location.hostname.includes("localhost") ||
+      window.location.hostname.includes("vusercontent.com")
+
+    setIsPreviewMode(isPreview)
+    console.log("Preview mode:", isPreview)
+  }, [])
+
   // State for form inputs
   const [topVideoLink, setTopVideoLink] = useState<string>("")
   const [bottomVideoLink, setBottomVideoLink] = useState<string>("")
@@ -18,319 +45,279 @@ export function ReactionSplitGenerator() {
   const [duration, setDuration] = useState<string>("60")
   const [topVolume, setTopVolume] = useState<number>(30)
   const [bottomVolume, setBottomVolume] = useState<number>(100)
-  const [generatedScript, setGeneratedScript] = useState<string>("")
-  const [scriptFilename, setScriptFilename] = useState<string>("reaction_split.sh")
-  const [isDownloadDialogOpen, setIsDownloadDialogOpen] = useState<boolean>(false)
-  const [copyNotification, setCopyNotification] = useState<string>("")
 
-  // Auto-convert YouTube links to direct download links
-  const processYouTubeLink = (link: string): string => {
-    // This is just a placeholder - the actual download happens in the script
-    return link
+  // Job state
+  const [isGenerating, setIsGenerating] = useState<boolean>(false)
+  const [jobId, setJobId] = useState<string | null>(null)
+  const [jobStatus, setJobStatus] = useState<string | null>(null)
+  const [jobProgress, setJobProgress] = useState<number>(0)
+  const [jobError, setJobError] = useState<string>("")
+  const [downloadUrl, setDownloadUrl] = useState<string>("")
+
+  // Simulate job processing for preview mode
+  const simulateJobProcessing = (jobId: string) => {
+    // Initialize job
+    previewJobs.set(jobId, {
+      status: "pending",
+      progress: 0,
+    })
+
+    // Simulate processing
+    let progress = 0
+    const interval = setInterval(() => {
+      progress += 10
+
+      if (progress <= 90) {
+        previewJobs.set(jobId, {
+          status: "processing",
+          progress,
+        })
+      } else {
+        clearInterval(interval)
+        previewJobs.set(jobId, {
+          status: "completed",
+          progress: 100,
+          downloadUrl: `https://example.com/simulated-reaction-${jobId}.mp4`,
+        })
+
+        // Create a sample file for download
+        setTimeout(() => {
+          const sampleFile = new Blob(["This is a sample reaction video file"], { type: "video/mp4" })
+          const url = URL.createObjectURL(sampleFile)
+          const a = document.createElement("a")
+          a.href = url
+          a.download = "sample-reaction-video.mp4"
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+        }, 500)
+      }
+    }, 200) // Speed up the simulation for better UX
   }
 
-  // Generate the script
-  const generateScript = () => {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-")
-    const outputFilename = `reaction_split_${timestamp}.mp4`
-
-    const script = `#!/bin/bash
-# Reaction Split Generator Script
-# Generated: ${new Date().toLocaleString()}
-
-# Stop on first error
-set -e
-
-# Enable command echo for debugging
-set -x
-
-# Function for safe math calculations
-safe_calc() {
-  result=\$(awk "\$1" 2>/dev/null)
-  if [ -z "\$result" ] || [ "\$result" = "inf" ] || [ "\$result" = "-inf" ] || [ "\$result" = "nan" ]; then
-    echo "\$2" # fallback value
-  else
-    echo "\$result"
-  fi
-}
-
-echo "🎬 Reaction Split Generator"
-echo "=========================="
-echo ""
-
-# --- CONFIG ---
-TOP_VIDEO="${topVideoLink}"
-BOTTOM_VIDEO="${bottomVideoLink}"
-TOP_START="${topStartTime}"
-BOTTOM_START="${bottomStartTime}"
-DURATION="${duration}"
-TOP_VOLUME="${topVolume / 100}"
-BOTTOM_VOLUME="${bottomVolume / 100}"
-OUTPUT_DIR="\$HOME/Downloads"
-OUTPUT_FILE="${outputFilename}"
-FULL_OUTPUT="\$OUTPUT_DIR/\$OUTPUT_FILE"
-
-echo "Creating vertical split reaction video..."
-echo "Top video: \$TOP_VIDEO"
-echo "Bottom video: \$BOTTOM_VIDEO"
-echo "Duration: \$DURATION seconds"
-echo ""
-
-# Check if ffmpeg is installed
-if ! command -v ffmpeg &> /dev/null; then
-  echo "❌ Error: FFmpeg is not installed. Please install it before continuing."
-  echo "Mac: brew install ffmpeg"
-  echo "Windows: Download from https://www.gyan.dev/ffmpeg/builds/ and add to PATH"
-  exit 1
-fi
-
-# Create temp directory
-TMP_DIR=\$(mktemp -d)
-echo "Created temp directory: \$TMP_DIR"
-
-# --- DOWNLOAD VIDEOS ---
-# Function to download YouTube videos with fallback options
-download_youtube_video() {
-  local url="\$1"
-  local output="\$2"
-  local description="\$3"
-  
-  echo "Downloading \$description video from YouTube..."
-  
-  # First try with best quality
-  if yt-dlp -f "best" "\$url" -o "\$output"; then
-    echo "✅ \$description video downloaded successfully"
-    return 0
-  fi
-  
-  echo "⚠️ First download attempt failed, trying with format 'bestvideo+bestaudio'..."
-  
-  # Second try with separate video and audio streams
-  if yt-dlp -f "bestvideo+bestaudio" "\$url" -o "\$output"; then
-    echo "✅ \$description video downloaded successfully"
-    return 0
-  fi
-  
-  echo "⚠️ Second download attempt failed, trying with format '22/18/best'..."
-  
-  # Third try with common format codes (22=720p, 18=360p)
-  if yt-dlp -f "22/18/best" "\$url" -o "\$output"; then
-    echo "✅ \$description video downloaded successfully"
-    return 0
-  fi
-  
-  # If all attempts fail
-  echo "❌ Failed to download \$description video after multiple attempts."
-  return 1
-}
-
-# Check if top video is a YouTube URL
-if [[ "\$TOP_VIDEO" == *"youtube.com"* || "\$TOP_VIDEO" == *"youtu.be"* ]]; then
-  echo "YouTube URL detected for top video."
-  
-  # Check if yt-dlp is installed
-  if ! command -v yt-dlp &> /dev/null; then
-    echo "❌ Error: yt-dlp is not installed. Please install it with: brew install yt-dlp"
-    exit 1
-  fi
-  
-  # Download YouTube video with fallback options
-  TOP_OUTPUT="\$TMP_DIR/top_video.mp4"
-  if ! download_youtube_video "\$TOP_VIDEO" "\$TOP_OUTPUT" "top"; then
-    rm -rf "\$TMP_DIR"
-    exit 1
-  fi
-  TOP_VIDEO="\$TOP_OUTPUT"
-  
-elif [[ "\$TOP_VIDEO" == *"dropbox.com"* ]]; then
-  # Handle Dropbox links
-  if [[ "\$TOP_VIDEO" != *"raw=1"* ]]; then
-    if [[ "\$TOP_VIDEO" == *"dl=0"* ]]; then
-      TOP_VIDEO="\${TOP_VIDEO/dl=0/raw=1}"
-    elif [[ "\$TOP_VIDEO" != *"?"* ]]; then
-      TOP_VIDEO="\${TOP_VIDEO}?raw=1"
-    fi
-  fi
-  
-  # Download the Dropbox file
-  TOP_OUTPUT="\$TMP_DIR/top_video.mp4"
-  echo "Downloading top video from Dropbox..."
-  if curl -L "\$TOP_VIDEO" -o "\$TOP_OUTPUT"; then
-    echo "✅ Top video downloaded successfully"
-    TOP_VIDEO="\$TOP_OUTPUT"
-  else
-    echo "❌ Failed to download top video. Check the URL and your internet connection."
-    rm -rf "\$TMP_DIR"
-    exit 1
-  fi
-fi
-
-# Check if bottom video is a YouTube URL
-if [[ "\$BOTTOM_VIDEO" == *"youtube.com"* || "\$BOTTOM_VIDEO" == *"youtu.be"* ]]; then
-  echo "YouTube URL detected for bottom video."
-  
-  # Download YouTube video with fallback options
-  BOTTOM_OUTPUT="\$TMP_DIR/bottom_video.mp4"
-  if ! download_youtube_video "\$BOTTOM_VIDEO" "\$BOTTOM_OUTPUT" "bottom"; then
-    rm -rf "\$TMP_DIR"
-    exit 1
-  fi
-  BOTTOM_VIDEO="\$BOTTOM_OUTPUT"
-  
-elif [[ "\$BOTTOM_VIDEO" == *"dropbox.com"* ]]; then
-  # Handle Dropbox links
-  if [[ "\$BOTTOM_VIDEO" != *"raw=1"* ]]; then
-    if [[ "\$BOTTOM_VIDEO" == *"dl=0"* ]]; then
-      BOTTOM_VIDEO="\${BOTTOM_VIDEO/dl=0/raw=1}"
-    elif [[ "\$BOTTOM_VIDEO" != *"?"* ]]; then
-      BOTTOM_VIDEO="\${BOTTOM_VIDEO}?raw=1"
-    fi
-  fi
-  
-  # Download the Dropbox file
-  BOTTOM_OUTPUT="\$TMP_DIR/bottom_video.mp4"
-  echo "Downloading bottom video from Dropbox..."
-  if curl -L "\$BOTTOM_VIDEO" -o "\$BOTTOM_OUTPUT"; then
-    echo "✅ Bottom video downloaded successfully"
-    BOTTOM_VIDEO="\$BOTTOM_OUTPUT"
-  else
-    echo "❌ Failed to download bottom video. Check the URL and your internet connection."
-    rm -rf "\$TMP_DIR"
-    exit 1
-  fi
-fi
-
-# --- PROCESS VIDEOS ---
-echo "Processing videos..."
-
-# Check for audio streams in the input files
-echo "Checking for audio streams in the input files..."
-TOP_HAS_AUDIO=0
-BOTTOM_HAS_AUDIO=0
-
-# Check if top video has audio
-if ffprobe -v error -select_streams a -show_streams "\$TOP_VIDEO" 2>/dev/null | grep -q codec_type=audio; then
-  echo "✅ Top video has audio"
-  TOP_HAS_AUDIO=1
-else
-  echo "⚠️ Top video has no audio"
-  TOP_HAS_AUDIO=0
-fi
-
-# Check if bottom video has audio
-if ffprobe -v error -select_streams a -show_streams "\$BOTTOM_VIDEO" 2>/dev/null | grep -q codec_type=audio; then
-  echo "✅ Bottom video has audio"
-  BOTTOM_HAS_AUDIO=1
-else
-  echo "⚠️ Bottom video has no audio"
-  BOTTOM_HAS_AUDIO=0
-fi
-
-# Create appropriate filter complex based on available audio streams
-VIDEO_FILTER="[0:v]scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2[top]; [1:v]scale=1080:960:force_original_aspect_ratio=decrease,pad=1080:960:(ow-iw)/2:(oh-ih)/2[bottom]; [top][bottom]vstack=inputs=2[vout]"
-
-# Determine audio filter based on available streams
-if [ "\$TOP_HAS_AUDIO" -eq 1 ] && [ "\$BOTTOM_HAS_AUDIO" -eq 1 ]; then
-  echo "Using audio from both videos"
-  AUDIO_FILTER="; [0:a]volume=\$TOP_VOLUME[a1]; [1:a]volume=\$BOTTOM_VOLUME[a2]; [a1][a2]amix=inputs=2:duration=longest[aout]"
-  AUDIO_MAP="-map [aout]"
-elif [ "\$TOP_HAS_AUDIO" -eq 1 ]; then
-  echo "Using audio from top video only"
-  AUDIO_FILTER="; [0:a]volume=\$TOP_VOLUME[aout]"
-  AUDIO_MAP="-map [aout]"
-elif [ "\$BOTTOM_HAS_AUDIO" -eq 1 ]; then
-  echo "Using audio from bottom video only"
-  AUDIO_FILTER="; [1:a]volume=\$BOTTOM_VOLUME[aout]"
-  AUDIO_MAP="-map [aout]"
-else
-  echo "No audio streams found in either video"
-  AUDIO_FILTER=""
-  AUDIO_MAP=""
-fi
-
-# Combine video and audio filters
-FILTER_COMPLEX="\$VIDEO_FILTER\$AUDIO_FILTER"
-
-# Execute FFmpeg with the appropriate filter complex
-echo "Running FFmpeg command to create split screen video..."
-
-# IMPORTANT: Execute FFmpeg directly with properly quoted filter_complex
-if [ -n "\$AUDIO_MAP" ]; then
-  # With audio
-  ffmpeg -i "\$TOP_VIDEO" -ss \$TOP_START -t \$DURATION \\
-       -i "\$BOTTOM_VIDEO" -ss \$BOTTOM_START -t \$DURATION \\
-       -filter_complex "\$FILTER_COMPLEX" \\
-       -map "[vout]" \$AUDIO_MAP \\
-       -c:v libx264 -preset fast -crf 22 -c:a aac -shortest -y "\$FULL_OUTPUT"
-else
-  # Without audio
-  ffmpeg -i "\$TOP_VIDEO" -ss \$TOP_START -t \$DURATION \\
-       -i "\$BOTTOM_VIDEO" -ss \$BOTTOM_START -t \$DURATION \\
-       -filter_complex "\$FILTER_COMPLEX" \\
-       -map "[vout]" \\
-       -c:v libx264 -preset fast -crf 22 -shortest -y "\$FULL_OUTPUT"
-fi
-
-# Check if the output file was created successfully
-if [ -f "\$FULL_OUTPUT" ] && [ -s "\$FULL_OUTPUT" ]; then
-  echo "✅ Reaction split video created successfully!"
-  echo "Output saved to: \$FULL_OUTPUT"
-  echo "✅ Output file verified: \$(du -h \"\$FULL_OUTPUT\" | cut -f1) bytes"
-  
-  # Clean up
-  echo "Cleaning up temporary files..."
-  rm -rf "\$TMP_DIR"
-  
-  echo ""
-  echo "✨ Finished generating reaction split video"
-  echo "File saved to: \$FULL_OUTPUT"
-  echo "🎬 Your video is ready! Open it in your video player to view."
-else
-  echo "❌ Output file not found or empty. Something went wrong."
-  echo "Temporary files are kept at: \$TMP_DIR"
-  exit 1
-fi
-`
-
-    setGeneratedScript(script)
-    setScriptFilename(`reaction_split_${timestamp}.sh`)
+  // Get job status for preview mode
+  const getPreviewJobStatus = (jobId: string) => {
+    return previewJobs.get(jobId)
   }
 
-  // Copy command to clipboard with platform selection
-  const copyCommand = (platform: "mac" | "pc") => {
-    const command =
-      platform === "mac"
-        ? `cd ~/Downloads && chmod +x ${scriptFilename} && ./${scriptFilename}`
-        : `cd ~/Downloads && bash ${scriptFilename}`
+  // Generate the video
+  const generateVideo = async () => {
+    if (!topVideoLink || !bottomVideoLink) {
+      toast({
+        title: "Error",
+        description: "Please enter both top and bottom video URLs",
+        variant: "destructive",
+      })
+      return
+    }
 
-    navigator.clipboard.writeText(command)
-    setCopyNotification(`${platform.toUpperCase()} command copied!`)
+    setIsGenerating(true)
+    setJobStatus("pending")
+    setJobProgress(0)
+    setJobError("")
+    setDownloadUrl("")
 
-    // Clear notification after 3 seconds
-    setTimeout(() => {
-      setCopyNotification("")
-    }, 3000)
-  }
+    try {
+      // Generate a unique job ID
+      const generatedJobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
 
-  // Prepare download with custom filename
-  const prepareDownload = () => {
-    setIsDownloadDialogOpen(true)
-  }
+      if (isPreviewMode) {
+        console.log("Running in preview mode - simulating API")
+        // Simulate API in preview mode
+        simulateJobProcessing(generatedJobId)
+        setJobId(generatedJobId)
 
-  // Download script as a file with custom filename
-  const downloadScript = () => {
-    const element = document.createElement("a")
-    const file = new Blob([generatedScript], { type: "text/plain" })
-    element.href = URL.createObjectURL(file)
-    element.download = scriptFilename
-    document.body.appendChild(element)
-    element.click()
-    document.body.removeChild(element)
-    setIsDownloadDialogOpen(false)
+        // Start polling for simulated job status
+        const statusInterval = setInterval(() => {
+          const jobStatus = getPreviewJobStatus(generatedJobId)
+          if (jobStatus) {
+            setJobStatus(jobStatus.status)
+            setJobProgress(jobStatus.progress)
+
+            if (jobStatus.downloadUrl) {
+              setDownloadUrl(jobStatus.downloadUrl)
+            }
+
+            if (jobStatus.status === "completed" || jobStatus.status === "failed") {
+              clearInterval(statusInterval)
+              setIsGenerating(jobStatus.status !== "failed")
+
+              if (jobStatus.status === "completed") {
+                toast({
+                  title: "Success",
+                  description: "Your reaction video is ready to download! (Simulated in preview mode)",
+                })
+              }
+            }
+          }
+        }, 200) // Speed up the polling for better UX
+
+        return
+      }
+
+      const response = await fetch("/api/generate-reaction", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          topVideo: topVideoLink,
+          bottomVideo: bottomVideoLink,
+          topStartTime: Number.parseFloat(topStartTime),
+          bottomStartTime: Number.parseFloat(bottomStartTime),
+          duration: Number.parseFloat(duration),
+          topVolume: topVolume / 100,
+          bottomVolume: bottomVolume / 100,
+        }),
+      })
+
+      // Check if the response is JSON
+      const contentType = response.headers.get("content-type")
+      if (!contentType || !contentType.includes("application/json")) {
+        // Handle non-JSON response
+        const text = await response.text()
+        console.error("Non-JSON response:", text.substring(0, 500))
+        throw new Error(`Server returned non-JSON response (${response.status}). Falling back to preview mode.`)
+      }
+
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.error || "Failed to start video generation")
+      }
+
+      const data = await response.json()
+      setJobId(data.jobId)
+
+      // Poll for job status
+      const statusInterval = setInterval(async () => {
+        try {
+          const statusResponse = await fetch(`/api/job-status?jobId=${data.jobId}&type=reaction`)
+
+          // Check if the status response is JSON
+          const statusContentType = statusResponse.headers.get("content-type")
+          if (!statusContentType || !statusContentType.includes("application/json")) {
+            const text = await statusResponse.text()
+            console.error("Non-JSON status response:", text.substring(0, 500))
+            throw new Error(`Server returned non-JSON status response (${statusResponse.status})`)
+          }
+
+          if (!statusResponse.ok) {
+            throw new Error("Failed to get job status")
+          }
+
+          const statusData = await statusResponse.json()
+          setJobStatus(statusData.status)
+          setJobProgress(statusData.progress || 0)
+
+          if (statusData.error) {
+            setJobError(statusData.error)
+            clearInterval(statusInterval)
+            setIsGenerating(false)
+          }
+
+          if (statusData.downloadUrl) {
+            setDownloadUrl(statusData.downloadUrl)
+          }
+
+          if (statusData.status === "completed" || statusData.status === "failed") {
+            clearInterval(statusInterval)
+            setIsGenerating(statusData.status !== "failed")
+
+            if (statusData.status === "completed") {
+              toast({
+                title: "Success",
+                description: "Your reaction video is ready to download!",
+              })
+
+              // Trigger download if available
+              if (statusData.downloadUrl) {
+                const a = document.createElement("a")
+                a.href = statusData.downloadUrl
+                a.download = "reaction-video.mp4"
+                document.body.appendChild(a)
+                a.click()
+                document.body.removeChild(a)
+              }
+            } else if (statusData.status === "failed") {
+              toast({
+                title: "Error",
+                description: statusData.error || "Failed to generate video",
+                variant: "destructive",
+              })
+            }
+          }
+        } catch (error) {
+          clearInterval(statusInterval)
+          setIsGenerating(false)
+          setJobStatus("failed")
+          toast({
+            title: "Error",
+            description: error.message || "Failed to check job status",
+            variant: "destructive",
+          })
+        }
+      }, 2000)
+    } catch (error) {
+      console.error("Error starting video generation:", error)
+
+      if (isPreviewMode || error.message.includes("Falling back to preview mode")) {
+        // If we're in preview mode or need to fall back to it, simulate the process
+        console.log("Falling back to preview mode simulation")
+        const generatedJobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
+        simulateJobProcessing(generatedJobId)
+        setJobId(generatedJobId)
+
+        // Start polling for simulated job status
+        const statusInterval = setInterval(() => {
+          const jobStatus = getPreviewJobStatus(generatedJobId)
+          if (jobStatus) {
+            setJobStatus(jobStatus.status)
+            setJobProgress(jobStatus.progress)
+
+            if (jobStatus.downloadUrl) {
+              setDownloadUrl(jobStatus.downloadUrl)
+            }
+
+            if (jobStatus.status === "completed" || jobStatus.status === "failed") {
+              clearInterval(statusInterval)
+              setIsGenerating(jobStatus.status !== "failed")
+
+              if (jobStatus.status === "completed") {
+                toast({
+                  title: "Success",
+                  description: "Your reaction video is ready to download! (Simulated in preview mode)",
+                })
+              }
+            }
+          }
+        }, 200)
+
+        return
+      }
+
+      setIsGenerating(false)
+      setJobStatus("failed")
+      setJobError(error.message || "Failed to start video generation")
+      toast({
+        title: "Error",
+        description: error.message || "Failed to start video generation",
+        variant: "destructive",
+      })
+    }
   }
 
   return (
     <div className="space-y-8">
+      {isPreviewMode && (
+        <Alert>
+          <AlertTitle>Preview Mode</AlertTitle>
+          <AlertDescription>
+            Running in preview mode. API calls will be simulated and a sample video file will be provided for download.
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="border border-gray-300 p-6 rounded">
         {/* Video Sources */}
         <div className="mb-6">
@@ -500,115 +487,68 @@ fi
         </div>
 
         <Button
-          onClick={generateScript}
+          onClick={generateVideo}
           className="w-full bg-blue-600 text-white hover:bg-blue-700 rounded-sm"
-          disabled={!topVideoLink || !bottomVideoLink}
+          disabled={!topVideoLink || !bottomVideoLink || isGenerating}
         >
-          Generate Script
+          {isGenerating ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {isPreviewMode ? "Simulating Video Generation..." : "Generating Video..."}
+            </>
+          ) : isPreviewMode ? (
+            "Simulate Reaction Video"
+          ) : (
+            "Generate Reaction Video"
+          )}
         </Button>
       </div>
 
-      {/* Generated Script Output */}
-      {generatedScript && (
+      {/* Job Status */}
+      {jobId && (
         <div className="border border-gray-300 p-6 rounded">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-base font-normal">Generated Script</h2>
-            <div className="flex space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => copyCommand("mac")}
-                className="text-sm border-gray-400 text-blue-600 hover:bg-blue-50"
-              >
-                <ClipboardCopy className="h-4 w-4 mr-2" />
-                Copy Mac Command
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => copyCommand("pc")}
-                className="text-sm border-gray-400 text-blue-600 hover:bg-blue-50"
-              >
-                <ClipboardCopy className="h-4 w-4 mr-2" />
-                Copy PC Command
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={prepareDownload}
-                className="text-sm border-gray-400 text-blue-600 hover:bg-blue-50"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Download
-              </Button>
-            </div>
+          <div className="mb-4">
+            <h2 className="text-base font-normal mb-2">Processing Status</h2>
+            <Progress value={jobProgress} className="h-2 w-full" />
+            <p className="text-sm text-gray-600 mt-2">
+              Status: {jobStatus === "completed" ? "Complete" : jobStatus === "failed" ? "Failed" : "Processing"} (
+              {jobProgress}%)
+            </p>
+            {isPreviewMode && (
+              <p className="text-xs text-amber-500 mt-1">
+                Note: This is a simulated process in preview mode. No actual video processing is occurring.
+              </p>
+            )}
           </div>
 
-          {copyNotification && (
-            <div className="bg-green-100 text-green-800 p-2 rounded mb-4 text-center">{copyNotification}</div>
+          {jobError && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Error</AlertTitle>
+              <AlertDescription>{jobError}</AlertDescription>
+            </Alert>
           )}
 
-          <div className="bg-gray-50 p-4 rounded border border-gray-300 overflow-x-auto">
-            <pre className="text-xs font-mono whitespace-pre-wrap text-black">{generatedScript}</pre>
-          </div>
-
-          <div className="mt-4">
-            <Card className="border-gray-300">
-              <CardContent className="p-4">
-                <h3 className="text-sm font-medium mb-2">How to Run This Script</h3>
-                <ol className="text-xs text-gray-600 space-y-1 list-decimal list-inside">
-                  <li>Download the script using the button above</li>
-                  <li>Open Terminal (Mac) or Git Bash (Windows)</li>
-                  <li>
-                    Navigate to your Downloads folder:{" "}
-                    <code className="bg-gray-100 px-1 py-0.5 rounded">cd ~/Downloads</code>
-                  </li>
-                  <li>
-                    Make the script executable (Mac only):{" "}
-                    <code className="bg-gray-100 px-1 py-0.5 rounded">chmod +x {scriptFilename}</code>
-                  </li>
-                  <li>
-                    Run the script: <code className="bg-gray-100 px-1 py-0.5 rounded">./{scriptFilename}</code> (Mac) or{" "}
-                    <code className="bg-gray-100 px-1 py-0.5 rounded">bash {scriptFilename}</code> (Windows)
-                  </li>
-                </ol>
-              </CardContent>
-            </Card>
-          </div>
+          {downloadUrl && (
+            <div className="flex flex-col items-center space-y-4">
+              <p className="text-green-600 font-medium">
+                {isPreviewMode ? "Your simulated reaction video is ready!" : "Your reaction video is ready!"}
+              </p>
+              <Button asChild className="bg-blue-600 text-white hover:bg-blue-700">
+                <a href={downloadUrl} download="reaction-video.mp4">
+                  <Download className="mr-2 h-4 w-4" />
+                  {isPreviewMode ? "Download Sample Video" : "Download Video"}
+                </a>
+              </Button>
+              {isPreviewMode && (
+                <p className="text-xs text-gray-500">
+                  Note: In preview mode, this will download a sample file, not an actual processed video.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
-
-      {/* Download Dialog */}
-      <Dialog open={isDownloadDialogOpen} onOpenChange={setIsDownloadDialogOpen}>
-        <DialogContent className="bg-white border-gray-300">
-          <DialogHeader>
-            <DialogTitle className="text-base font-normal">Download Script</DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            <Label htmlFor="filename" className="text-sm font-normal">
-              Script Filename
-            </Label>
-            <Input
-              id="filename"
-              value={scriptFilename}
-              onChange={(e) => setScriptFilename(e.target.value)}
-              className="mt-2 border-gray-400 bg-white text-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setIsDownloadDialogOpen(false)}
-              className="text-sm border-gray-400 text-black hover:bg-gray-100"
-            >
-              Cancel
-            </Button>
-            <Button onClick={downloadScript} className="bg-blue-600 text-white hover:bg-blue-700 text-sm">
-              Download
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }
