@@ -1,7 +1,7 @@
 "use client"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MontageGenerator } from "@/components/montage-generator"
-import { ReactionVideoGenerator } from "@/components/reaction-video-generator"
+import { ReactionSplitGenerator } from "@/components/reaction-split-generator"
 
 export default function HomePage() {
   return (
@@ -23,7 +23,7 @@ export default function HomePage() {
           </TabsContent>
 
           <TabsContent value="reaction">
-            <ReactionVideoGenerator />
+            <ReactionSplitGenerator />
           </TabsContent>
         </Tabs>
       </div>
