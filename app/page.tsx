@@ -8,7 +8,7 @@ export default function HomePage() {
     <div className="min-h-screen bg-white text-black font-sans">
       {/* Header */}
       <header className="p-4 border-b border-gray-200 bg-white">
-        <div className="text-xl font-normal text-center">Video Generator</div>
+        <div className="text-xl font-normal text-center">🎬 Montage Maker</div>
       </header>
 
       <div className="max-w-2xl mx-auto px-4 py-12">
