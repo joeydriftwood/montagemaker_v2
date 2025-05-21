@@ -122,7 +122,7 @@ export function MontageGenerator() {
     setDownloadUrl("")
 
     try {
-      const response = await fetch("/api/generate-montage", {
+      const response = await fetch("https://montagemaker-seven.vercel.app/api/generate-montage"
         method: "POST",
         headers: {
           "Content-Type": "application/json",
