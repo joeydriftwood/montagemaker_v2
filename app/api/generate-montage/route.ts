@@ -2,21 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { randomUUID } from "crypto";
 import fs from "fs/promises";
+import { exec } from "child_process";
 import path from "path";
 import os from "os";
-import ytdlp from "yt-dlp-exec"; // ✅ Node wrapper
-import { exec } from "child_process";
+import ytdlp from "yt-dlp-exec"; // ✅ use the Node wrapper
 
 function downloadVideo(url: string, outputPath: string): Promise<void> {
-  const yt = url.includes("youtube.com") || url.includes("youtu.be");
-  const dropbox = url.includes("dropbox.com");
-  const finalUrl = dropbox ? url.replace("?dl=0", "?dl=1") : url;
-
   return new Promise((resolve, reject) => {
+    const yt = url.includes("youtube.com") || url.includes("youtu.be");
+    const dropbox = url.includes("dropbox.com");
+    const finalUrl = dropbox ? url.replace("?dl=0", "?dl=1") : url;
+
     if (yt) {
       ytdlp(finalUrl, {
         output: outputPath,
-        format: "best",
+        format: "best"
       })
         .then(() => resolve())
         .catch(reject);
@@ -30,12 +30,22 @@ function downloadVideo(url: string, outputPath: string): Promise<void> {
   });
 }
 
-function extractClips(input: string, outputDir: string, count: number, start: number, end: number, duration: number, linear: boolean): Promise<string[]> {
+function extractClips(
+  input: string,
+  outputDir: string,
+  count: number,
+  start: number,
+  end: number,
+  duration: number,
+  linear: boolean
+): Promise<string[]> {
   const interval = Math.floor((end - start - duration) / count);
   const clips: string[] = [];
 
   const promises = Array.from({ length: count }).map((_, i) => {
-    const clipStart = linear ? start + i * interval : start + Math.floor(Math.random() * (end - start - duration));
+    const clipStart = linear
+      ? start + i * interval
+      : start + Math.floor(Math.random() * (end - start - duration));
     const output = path.join(outputDir, `clip${i}.mp4`);
     clips.push(output);
 
@@ -50,12 +60,19 @@ function extractClips(input: string, outputDir: string, count: number, start: nu
 
 function combineClips(clips: string[], output: string): Promise<void> {
   return fs
-    .writeFile(path.join(path.dirname(output), "inputs.txt"), clips.map(c => `file '${c}'`).join("\n"))
-    .then(() =>
-      new Promise((resolve, reject) => {
-        const cmd = `ffmpeg -f concat -safe 0 -i "${path.join(path.dirname(output), "inputs.txt")}" -c copy "${output}" -y`;
-        exec(cmd, (err) => (err ? reject(err) : resolve()));
-      })
+    .writeFile(
+      path.join(path.dirname(output), "inputs.txt"),
+      clips.map((c) => `file '${c}'`).join("\n")
+    )
+    .then(
+      () =>
+        new Promise((resolve, reject) => {
+          const cmd = `ffmpeg -f concat -safe 0 -i "${path.join(
+            path.dirname(output),
+            "inputs.txt"
+          )}" -c copy "${output}" -y`;
+          exec(cmd, (err) => (err ? reject(err) : resolve()));
+        })
     );
 }
 
@@ -82,19 +99,30 @@ export async function POST(req: NextRequest) {
 
   try {
     await downloadVideo(selectedUrl, inputPath);
-    const clips = await extractClips(inputPath, tempDir, 15, startCut, endCut, clipDuration, linearSelection);
+    const clips = await extractClips(
+      inputPath,
+      tempDir,
+      15,
+      startCut,
+      endCut,
+      clipDuration,
+      linearSelection
+    );
     const outputPath = path.join(tempDir, "montage.mp4");
 
     await combineClips(clips, outputPath);
 
     const file = await fs.readFile(outputPath);
     const blob = await put(`${randomUUID()}-${customFilename}`, file, {
-      access: "public",
+      access: "public"
     });
 
     return NextResponse.json({ url: blob.url });
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: "Failed to generate montage." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to generate montage." },
+      { status: 500 }
+    );
   }
 }
