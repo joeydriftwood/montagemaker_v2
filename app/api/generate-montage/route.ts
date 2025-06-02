@@ -1,3 +1,4 @@
+import ytdlp from "yt-dlp-exec";
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { randomUUID } from "crypto";
@@ -8,14 +9,30 @@ import os from "os";
 
 function downloadVideo(url: string, outputPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const dropbox = url.includes("dropbox.com");
-    const finalUrl = dropbox ? url.replace("?dl=0", "?dl=1") : url;
+    const isYouTube = url.includes("youtube.com") || url.includes("youtu.be");
+    const isDropbox = url.includes("dropbox.com");
+    const finalUrl = isDropbox ? url.replace("?dl=0", "?dl=1") : url;
 
-    const cmd = `curl -L "${finalUrl}" --output "${outputPath}"`;
-    exec(cmd, (error) => {
-      if (error) reject(error);
-      else resolve();
-    });
+    const isVercel = process.env.VERCEL === "1";
+
+    if (isYouTube) {
+      if (isVercel) {
+        return reject(new Error("YouTube downloads are not supported on Vercel."));
+      }
+
+      ytdlp(finalUrl, {
+        output: outputPath,
+        format: "best",
+      })
+        .then(() => resolve())
+        .catch(reject);
+    } else {
+      const cmd = `curl -L "${finalUrl}" --output "${outputPath}"`;
+      exec(cmd, (error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    }
   });
 }
 

@@ -2,6 +2,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MontageGenerator } from "@/components/montage-generator"
 import { ReactionSplitGenerator } from "@/components/reaction-split-generator"
+import VideoForm from "@/components/VideoForm";
 
 export default function HomePage() {
   return (
@@ -19,6 +20,7 @@ export default function HomePage() {
           </TabsList>
 
           <TabsContent value="montage">
+            <VideoForm />
             <MontageGenerator />
           </TabsContent>
 
