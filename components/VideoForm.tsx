@@ -13,7 +13,7 @@ export default function VideoForm() {
     const shouldDownload = isYouTubeOrTikTok(inputUrl);
 
     const resolvedUrl = shouldDownload
-      ? await fetch("http://localhost:3000/download", {
+      ? await fetch("https://montagemaker-downloader.onrender.com/download", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: inputUrl }),
