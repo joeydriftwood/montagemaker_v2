@@ -28,6 +28,7 @@ export function MontageGenerator() {
   const [resolution, setResolution] = useState<string>("720p")
   const [linearMode, setLinearMode] = useState<boolean>(true)
   const [customFilename, setCustomFilename] = useState<string>("montage")
+  const [folderName, setFolderName] = useState<string>("montages")
   const [startCutAt, setStartCutAt] = useState<string>("0")
   const [endCutAt, setEndCutAt] = useState<string>("60")
   const [variations, setVariations] = useState<string>("1")
@@ -132,6 +133,9 @@ export function MontageGenerator() {
     // Clean filename and ensure it has .sh extension
     const cleanFilename = customFilename.replace(/[^a-zA-Z0-9_-]/g, "_")
     const scriptFilename = cleanFilename.endsWith(".sh") ? cleanFilename : `${cleanFilename}.sh`
+    
+    // Clean folder name for safe use in file paths
+    const cleanFolderName = folderName.replace(/[^a-zA-Z0-9_-]/g, "_") || "montages"
 
     const { width, height } = getResolutionDimensions()
     const clipDuration = montageType === "fixed" ? Number.parseFloat(interval) : 60 / Number.parseInt(bpm)
@@ -167,7 +171,7 @@ set -e  # Exit on any error
 
 # Configuration
 SOURCE_URLS=(${cleanVideoUrls.join(" ")})
-OUTPUT_DIR="$HOME/Downloads/montages"
+OUTPUT_DIR="$HOME/Downloads/${cleanFolderName}"
 MONTAGE_LENGTH=${montageLength}
 CLIP_DURATION=${clipDuration}
 NUM_CLIPS=${numClips}
@@ -995,6 +999,16 @@ main "$@"
                       max="5"
                       value={variations}
                       onChange={(e) => setVariations(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="folderName">Folder Name (in Downloads)</Label>
+                    <Input
+                      id="folderName"
+                      value={folderName}
+                      onChange={(e) => setFolderName(e.target.value)}
+                      placeholder="e.g., my_montages"
                     />
                   </div>
 
