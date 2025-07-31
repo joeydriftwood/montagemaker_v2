@@ -137,6 +137,28 @@ export function MontageGenerator() {
     const clipDuration = montageType === "fixed" ? Number.parseFloat(interval) : 60 / Number.parseInt(bpm)
     const numClips = Math.ceil(Number.parseInt(montageLength) / clipDuration)
 
+    // Clean YouTube URLs to remove playlist parameters
+    const cleanVideoUrls = videoLinks
+      .filter((url) => url.trim())
+      .map((url) => {
+        const trimmedUrl = url.trim()
+        // Remove playlist parameters from YouTube URLs
+        if (trimmedUrl.includes('youtube.com') || trimmedUrl.includes('youtu.be')) {
+          try {
+            const urlObj = new URL(trimmedUrl)
+            // Keep only the video ID parameter
+            const videoId = urlObj.searchParams.get('v')
+            if (videoId) {
+              return `"https://www.youtube.com/watch?v=${videoId}"`
+            }
+          } catch (e) {
+            // If URL parsing fails, return original
+            return `"${trimmedUrl}"`
+          }
+        }
+        return `"${trimmedUrl}"`
+      })
+
     const script = `#!/bin/bash
 # Generated Montage Script
 # Created: ${new Date().toLocaleString()}
@@ -144,10 +166,7 @@ export function MontageGenerator() {
 set -e  # Exit on any error
 
 # Configuration
-SOURCE_URLS=(${videoLinks
-      .filter((url) => url.trim())
-      .map((url) => `"${url.trim()}"`)
-      .join(" ")})
+SOURCE_URLS=(${cleanVideoUrls.join(" ")})
 OUTPUT_DIR="$HOME/Downloads/montages"
 MONTAGE_LENGTH=${montageLength}
 CLIP_DURATION=${clipDuration}
@@ -242,9 +261,9 @@ download_videos() {
             # YouTube video
             local temp_output="\$WORK_DIR/source_\$index.%(ext)s"
             if command -v yt-dlp &> /dev/null; then
-                yt-dlp -f "best[height<=720]" -o "\$temp_output" "\$url"
+                yt-dlp --no-playlist -f "best[height<=720]" -o "\$temp_output" "\$url"
             else
-                youtube-dl -f "best[height<=720]" -o "\$temp_output" "\$url"
+                youtube-dl --no-playlist -f "best[height<=720]" -o "\$temp_output" "\$url"
             fi
             
             # Find the actual downloaded file and rename it
@@ -315,7 +334,7 @@ download_videos() {
                 # Try with yt-dlp as fallback (supports many sites)
                 local temp_output="\$WORK_DIR/source_\$index.%(ext)s"
                 if command -v yt-dlp &> /dev/null; then
-                    if yt-dlp -f "best[height<=720]" -o "\$temp_output" "\$url"; then
+                    if yt-dlp --no-playlist -f "best[height<=720]" -o "\$temp_output" "\$url"; then
                         local downloaded_file=\$(find "\$WORK_DIR" -name "source_\$index.*" -type f | head -1)
                         if [[ -n "\$downloaded_file" ]]; then
                             mv "\$downloaded_file" "\$output_file"
