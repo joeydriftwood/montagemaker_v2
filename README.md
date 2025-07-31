@@ -188,3 +188,4 @@ Jobs are processed asynchronously with progress tracking and status updates.
 - File size limits for uploads
 - Temporary file cleanup
 # Updated Wed Jul 30 18:50:29 CEST 2025
+# Force Vercel deployment Thu Jul 31 13:25:22 CEST 2025
