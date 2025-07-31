@@ -97,7 +97,7 @@ export function MontageGenerator() {
   const copyCommand = async () => {
     if (!lastGeneratedScript) return
 
-    const command = `chmod +x ${lastGeneratedScript} && ./${lastGeneratedScript}`
+    const command = `cd ~/Downloads && chmod +x ${lastGeneratedScript} && ./${lastGeneratedScript}`
 
     try {
       await navigator.clipboard.writeText(command)
