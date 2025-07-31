@@ -678,7 +678,7 @@ main "$@"
             variant: "destructive",
           })
         }
-      }, 2000)
+      }, 1000) // Poll every 1 second instead of 2
     } catch (error) {
       console.error("Error starting montage generation:", error)
       setIsGenerating(false)
