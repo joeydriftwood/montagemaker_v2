@@ -283,8 +283,17 @@ download_videos() {
                 # Replace dropbox.com with dl.dropboxusercontent.com and remove ?dl=0
                 direct_url=\$(echo "\$url" | sed 's/dropbox\\.com/dl.dropboxusercontent.com/g' | sed 's/?dl=0//g')
             elif [[ "\$url" == *"?dl=0"* ]]; then
-                # Just change dl=0 to dl=1
-                direct_url=\$(echo "\$url" | sed 's/?dl=0/?dl=1/g')
+                # Change dl=0 to raw=1 for direct download
+                direct_url=\$(echo "\$url" | sed 's/?dl=0/?raw=1/g')
+            elif [[ "\$url" == *"?dl=1"* ]]; then
+                # Change dl=1 to raw=1 for direct download
+                direct_url=\$(echo "\$url" | sed 's/?dl=1/?raw=1/g')
+            elif [[ "\$url" == *"&dl=0"* ]]; then
+                # Change &dl=0 to &raw=1 for direct download
+                direct_url=\$(echo "\$url" | sed 's/&dl=0/\&raw=1/g')
+            elif [[ "\$url" == *"&dl=1"* ]]; then
+                # Change &dl=1 to &raw=1 for direct download
+                direct_url=\$(echo "\$url" | sed 's/&dl=1/\&raw=1/g')
             fi
             
             print_status "Converted Dropbox URL: \$direct_url"
