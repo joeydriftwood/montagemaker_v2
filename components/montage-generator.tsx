@@ -384,7 +384,10 @@ extract_clips() {
         
         # Get video duration
         local duration=\$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "\$source_file" | cut -d. -f1)
-        local usable_duration=\$((duration - START_CUT - (duration - END_CUT)))
+        
+        # Calculate usable range: from START_CUT to (duration - END_CUT)
+        local end_time=\$((duration - END_CUT))
+        local usable_duration=\$((end_time - START_CUT))
         
         if [[ \$usable_duration -le 0 ]]; then
             print_warning "Video \$((source_index + 1)) is too short, skipping..."
@@ -401,8 +404,8 @@ extract_clips() {
         fi
         
         # Ensure we don't go past the end
-        if [[ \$((start_time + CLIP_DURATION)) -gt \$((duration - (duration - END_CUT))) ]]; then
-            start_time=\$((duration - (duration - END_CUT) - CLIP_DURATION))
+        if [[ \$((start_time + CLIP_DURATION)) -gt \$end_time ]]; then
+            start_time=\$((end_time - CLIP_DURATION))
         fi
         
         local output_clip="\$WORK_DIR/clip_\$(printf "%03d" \$clip_index).mp4"
