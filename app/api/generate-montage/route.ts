@@ -22,11 +22,29 @@ export async function POST(request: NextRequest) {
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      return NextResponse.json({ error: error.error || "Failed to start montage generation" }, { status: response.status })
+      // Try to parse error as JSON, fallback to text if it's not JSON
+      let errorMessage = "Failed to start montage generation"
+      try {
+        const errorData = await response.json()
+        errorMessage = errorData.error || errorMessage
+      } catch (parseError) {
+        // If response is not JSON (e.g., HTML error page), get text
+        const errorText = await response.text()
+        console.error("Backend returned non-JSON response:", errorText)
+        errorMessage = `Backend error: ${response.status} ${response.statusText}`
+      }
+      return NextResponse.json({ error: errorMessage }, { status: response.status })
     }
 
-    const data = await response.json()
+    // Try to parse response as JSON
+    let data
+    try {
+      data = await response.json()
+    } catch (parseError) {
+      console.error("Failed to parse backend response as JSON:", parseError)
+      return NextResponse.json({ error: "Invalid response from backend" }, { status: 500 })
+    }
+    
     return NextResponse.json(data)
   } catch (error) {
     console.error("Error in generate-montage:", error)

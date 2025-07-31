@@ -182,12 +182,13 @@ KEEP_AUDIO=${keepAudio ? "true" : "false"}
 LINEAR_MODE=${linearMode ? "true" : "false"}
 OUTPUT_WIDTH=${width}
 OUTPUT_HEIGHT=${height}
-CUSTOM_FILENAME="${customFilename}.mp4"
+CUSTOM_FILENAME="${customFilename}"
 ADD_COPYRIGHT_LINE=${addCopyrightLine ? "true" : "false"}
 TEXT_OVERLAY="${textOverlay}"
 TEXT_FONT="${textFont}"
 TEXT_SIZE=${textSize[0]}
 TEXT_OUTLINE=${textOutline ? "true" : "false"}
+VARIATIONS=${variations}
 
 # Colors for output
 RED='\\033[0;31m'
@@ -244,9 +245,6 @@ check_dependencies() {
 setup_workspace() {
     WORK_DIR=$(mktemp -d)
     print_status "Created workspace: \$WORK_DIR"
-    
-    # Cleanup on exit
-    trap 'rm -rf "\$WORK_DIR"' EXIT
     
     # Create output directory
     mkdir -p "\$OUTPUT_DIR"
@@ -367,156 +365,214 @@ download_videos() {
     done
 }
 
-# Extract clips from videos
+# Extract clips from videos (FIXED VERSION based on GAWX script)
 extract_clips() {
     print_status "Extracting clips..."
     
-    local clip_index=0
-    local source_index=0
+    # Get video duration from first source
+    local source_file="\$WORK_DIR/source_0.mp4"
+    if [[ ! -f "\$source_file" ]]; then
+        print_error "Source file not found: \$source_file"
+        exit 1
+    fi
     
-    while [[ \$clip_index -lt \$NUM_CLIPS ]]; do
-        local source_file="\$WORK_DIR/source_\$source_index.mp4"
-        
-        if [[ ! -f "\$source_file" ]]; then
-            print_error "Source file not found: \$source_file"
-            exit 1
-        fi
-        
-        # Get video duration
-        local duration=\$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "\$source_file" | cut -d. -f1)
-        
-        # Calculate usable range: from START_CUT to (duration - END_CUT)
-        local end_time=\$((duration - END_CUT))
-        local usable_duration=\$((end_time - START_CUT))
-        
-        if [[ \$usable_duration -le 0 ]]; then
-            print_warning "Video \$((source_index + 1)) is too short, skipping..."
-            ((source_index++))
-            continue
-        fi
-        
+    local video_duration=\$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "\$source_file" | cut -d. -f1)
+    print_status "Video duration: \${video_duration}s"
+    
+    # Calculate usable range
+    local max_offset=\$((video_duration - END_CUT - CLIP_DURATION))
+    if [[ \$max_offset -le \$START_CUT ]]; then
+        max_offset=\$((START_CUT + 1))
+        print_warning "Video may be too short for selected parameters"
+    fi
+    
+    local successful_clips=0
+    
+    for j in \$(seq 1 \$NUM_CLIPS); do
         # Calculate start time
         local start_time
         if [[ "\$LINEAR_MODE" == "true" ]]; then
-            start_time=\$((START_CUT + (clip_index * CLIP_DURATION) % usable_duration))
+            # Linear mode: distribute clips evenly
+            local usable_duration=\$((max_offset - START_CUT))
+            local segment_size=\$((usable_duration / NUM_CLIPS))
+            start_time=\$((START_CUT + (j - 1) * segment_size))
         else
-            start_time=\$((START_CUT + RANDOM % usable_duration))
+            # Random mode: random position within usable range
+            local range=\$((max_offset - START_CUT))
+            start_time=\$((START_CUT + RANDOM % range))
         fi
         
         # Ensure we don't go past the end
-        if [[ \$((start_time + CLIP_DURATION)) -gt \$end_time ]]; then
-            start_time=\$((end_time - CLIP_DURATION))
+        if [[ \$((start_time + CLIP_DURATION)) -gt \$((video_duration - END_CUT)) ]]; then
+            start_time=\$((video_duration - END_CUT - CLIP_DURATION))
         fi
         
-        local output_clip="\$WORK_DIR/clip_\$(printf "%03d" \$clip_index).mp4"
+        local output_clip="\$WORK_DIR/clip\$(printf "%02d" \$j).mp4"
         
-        print_status "Extracting clip \$((clip_index + 1)) from video \$((source_index + 1)) at \${start_time}s"
+        print_status "Extracting clip \$j at position \${start_time}s"
         
-        # Extract clip with scaling
-        ffmpeg -ss \$start_time -i "\$source_file" -t \$CLIP_DURATION \\
-               -vf "scale=\${OUTPUT_WIDTH}:\${OUTPUT_HEIGHT}:force_original_aspect_ratio=decrease,pad=\${OUTPUT_WIDTH}:\${OUTPUT_HEIGHT}:(ow-iw)/2:(oh-ih)/2" \\
-               -c:v libx264 -preset fast -crf 23 \\
-               \$(if [[ "\$KEEP_AUDIO" == "true" ]]; then echo "-c:a aac"; else echo "-an"; fi) \\
-               -y "\$output_clip" 2>/dev/null
-        
-        if [[ -f "\$output_clip" ]]; then
-            print_success "Created clip \$((clip_index + 1))"
-            ((clip_index++))
+        # Extract clip (simplified, no scaling for now)
+        if ffmpeg -ss \$start_time -i "\$source_file" -t \$CLIP_DURATION -c:v libx264 -pix_fmt yuv420p -an -y "\$output_clip" < /dev/null 2>/dev/null; then
+            print_success "Successfully extracted clip \$j"
+            successful_clips=\$((successful_clips + 1))
         else
-            print_error "Failed to create clip \$((clip_index + 1))"
-        fi
-        
-        # Move to next source if we've used this one enough
-        if [[ \$((clip_index % 3)) -eq 0 ]]; then
-            ((source_index++))
-            if [[ \$source_index -ge \${#SOURCE_URLS[@]} ]]; then
-                source_index=0
-            fi
+            print_error "Failed to create clip \$j — skipping..."
         fi
     done
+    
+    print_status "Successfully extracted \$successful_clips out of \$NUM_CLIPS clips"
+    
+    if [[ \$successful_clips -eq 0 ]]; then
+        print_error "No clips were successfully extracted. Exiting..."
+        exit 1
+    fi
 }
 
-# Create montage
+# Create montage (FIXED VERSION based on GAWX script)
 create_montage() {
     print_status "Creating montage..."
     
-    local timestamp=\$(date +"%Y%m%d_%H%M%S")
-    local output_file="\$OUTPUT_DIR/\${CUSTOM_FILENAME%.*}_\${timestamp}.mp4"
+    local output_file="\$OUTPUT_DIR/\${CUSTOM_FILENAME}_v\$(printf "%02d" \$1).mp4"
     
     if [[ "\$LAYOUT" == "cut" ]]; then
-        # Sequential layout
-        print_status "Creating sequential montage..."
+        print_status "Creating cut montage..."
         
-        # Create file list
-        local file_list="\$WORK_DIR/file_list.txt"
-        find "\$WORK_DIR" -name "clip_*.mp4" | sort | while read -r clip; do
-            echo "file '\$(basename "\$clip")'" >> "\$file_list"
+        # Create clip list for ffmpeg
+        local clip_list="\$WORK_DIR/clip_list.txt"
+        print_status "Creating clip list..."
+        > "\$clip_list"
+        
+        # Find all mp4 files in the temp directory and add them to the clip list
+        local clip_index=0
+        for f in "\$WORK_DIR"/clip*.mp4; do
+            if [[ -f "\$f" ]] && [[ -s "\$f" ]]; then  # Check if file exists and is not empty
+                clip_index=\$((clip_index + 1))
+                echo "file '\$(basename "\$f")'" >> "\$clip_list"
+                print_status "✓ Including clip: \$(basename "\$f")"
+            fi
         done
         
+        print_status "Added \$clip_index clips to the list"
+        
+        # Check if we have clips in the list
+        if [[ \$clip_index -eq 0 ]]; then
+            print_error "No valid clips found for concatenation. Skipping..."
+            return 1
+        fi
+        
+        # Check if clip list exists and is not empty
+        if [[ ! -s "\$clip_list" ]]; then
+            print_error "Clip list file missing or empty. Skipping..."
+            return 1
+        fi
+        
+        # Create the montage
+        print_status "Creating montage variation \$1..."
         cd "\$WORK_DIR"
-        
-        # Build filter complex for effects
-        local filter_complex=""
-        
-        # Add copyright line if requested
-        if [[ "\$ADD_COPYRIGHT_LINE" == "true" ]]; then
-            local line_y=\$((OUTPUT_HEIGHT / 4))
-            filter_complex="drawbox=x=0:y=\$line_y:w=\$OUTPUT_WIDTH:h=2:color=black:t=fill"
-        fi
-        
-        # Add text overlay if requested
-        if [[ -n "\$TEXT_OVERLAY" ]]; then
-            local text_filter="drawtext=text='\$TEXT_OVERLAY':fontfile=/System/Library/Fonts/\${TEXT_FONT}.ttf:fontsize=\$TEXT_SIZE:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2"
+        if ffmpeg -f concat -safe 0 -i "clip_list.txt" -c:v libx264 -pix_fmt yuv420p "\$output_file"; then
+            # Wait a moment to ensure file is written
+            sleep 1
             
-            if [[ "\$TEXT_OUTLINE" == "true" ]]; then
-                text_filter="\$text_filter:borderw=2:bordercolor=black"
-            fi
-            
-            if [[ -n "\$filter_complex" ]]; then
-                filter_complex="\$filter_complex,\$text_filter"
+            # Check if output file exists and has size
+            if [[ -f "\$output_file" ]] && [[ -s "\$output_file" ]]; then
+                print_success "Montage created: \$output_file"
+                print_success "Duration: \${MONTAGE_LENGTH}s, Interval: \${CLIP_DURATION}s, Clips: \${clip_index}"
+                cd - > /dev/null
+                return 0
             else
-                filter_complex="\$text_filter"
+                cd - > /dev/null
+                print_error "Output file not found or empty"
+                return 1
             fi
-        fi
-        
-        # Create montage
-        if [[ -n "\$filter_complex" ]]; then
-            ffmpeg -f concat -safe 0 -i "\$file_list" -vf "\$filter_complex" \\
-                   -c:v libx264 -preset fast -crf 23 \\
-                   \$(if [[ "\$KEEP_AUDIO" == "true" ]]; then echo "-c:a aac"; else echo "-an"; fi) \\
-                   -y "\$output_file"
         else
-            ffmpeg -f concat -safe 0 -i "\$file_list" \\
-                   -c:v libx264 -preset fast -crf 23 \\
-                   \$(if [[ "\$KEEP_AUDIO" == "true" ]]; then echo "-c:a aac"; else echo "-an"; fi) \\
-                   -y "\$output_file"
+            cd - > /dev/null
+            print_error "Failed to create montage for variation \$1"
+            return 1
         fi
         
     else
-        # Grid layout
-        print_status "Creating grid montage..."
-        print_warning "Grid layout not fully implemented in this script version"
-        print_status "Falling back to sequential layout..."
+        print_status "Creating stacked montage..."
         
-        # For now, fall back to sequential
-        LAYOUT="cut"
-        create_montage
-        return
-    fi
-    
-    if [[ -f "\$output_file" ]]; then
-        print_success "Montage created successfully!"
-        print_success "Output file: \$output_file"
-        
-        # Open output directory
-        if command -v open &> /dev/null; then
-            open "\$OUTPUT_DIR"
-        elif command -v xdg-open &> /dev/null; then
-            xdg-open "\$OUTPUT_DIR"
+        # Check if we have any clips to work with
+        local clip_count=\$(find "\$WORK_DIR" -name "clip*.mp4" -type f | wc -l)
+        if [[ "\$clip_count" -eq 0 ]]; then
+            print_error "No clips found in temp directory. Skipping stacked montage."
+            return 1
         fi
-    else
-        print_error "Failed to create montage"
-        exit 1
+        
+        print_status "Found \$clip_count clips to include in stacked montage"
+        
+        # Create a list of all clips
+        local clips=(\$(find "\$WORK_DIR" -name "clip*.mp4" -type f | sort))
+        
+        # Build input files array
+        local input_files=()
+        for clip in "\${clips[@]}"; do
+            input_files+=(-i "\$clip")
+        done
+        
+        # Get source video dimensions
+        local source_width=\$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of default=noprint_wrappers=1:nokey=1 "\$WORK_DIR/source_0.mp4")
+        local source_height=\$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of default=noprint_wrappers=1:nokey=1 "\$WORK_DIR/source_0.mp4")
+        
+        # Create a filter complex for the stacked layout
+        local filter="color=s=\${source_width}x\${source_height}:d=\${MONTAGE_LENGTH}:c=black[bg];"
+        local last_output="bg"
+        
+        # Process clips in REVERSE order so newer clips appear on top
+        for i in \$(seq \$((\${#clips[@]} - 1)) -1 0); do
+            # Calculate appearance time (first clip at 0, others 1 second apart)
+            local clip_index=\$((\${#clips[@]} - 1 - i))
+            if [[ \$clip_index -eq 0 ]]; then
+                local appear_time=0
+                local scale_factor=1.0
+            else
+                local appear_time=\$clip_index
+                # Calculate scale factor based on the clip index
+                local scale_factor=1.0
+                for j in \$(seq 1 \$clip_index); do
+                    scale_factor=\$(echo "scale=2; \$scale_factor * 0.75" | bc)
+                done
+            fi
+          
+            # Calculate scaled dimensions
+            local scaled_width=\$(echo "\$source_width * \$scale_factor" | bc | awk '{printf "%d", \$0}')
+            local scaled_height=\$(echo "\$source_height * \$scale_factor" | bc | awk '{printf "%d", \$0}')
+            
+            # For clips after the first, calculate position
+            if [[ \$clip_index -gt 0 ]]; then
+                # Calculate maximum position to ensure clip is within bounds
+                local max_x=\$(( source_width - scaled_width ))
+                local max_y=\$(( source_height - scaled_height ))
+                
+                # Ensure max_x and max_y are at least 0
+                if [[ \$max_x -lt 0 ]]; then max_x=0; fi
+                if [[ \$max_y -lt 0 ]]; then max_y=0; fi
+                
+                # Generate position (random or centered)
+                local x=\$(( RANDOM % (max_x + 1) ))
+                local y=\$(( RANDOM % (max_y + 1) ))
+            else
+                # First clip is centered and full size
+                local x=0
+                local y=0
+            fi
+            
+            # Add to filter complex
+            filter="\${filter}[\$i:v]setpts=PTS-STARTPTS+\${appear_time}/TB,scale=\${scaled_width}:\${scaled_height}[v\$i];"
+            filter="\${filter}[\$last_output][v\$i]overlay=\${x}:\${y}[out\$i];"
+            last_output="out\$i"
+        done
+        
+        # Execute the ffmpeg command
+        if ffmpeg "\${input_files[@]}" -filter_complex "\${filter}" -map "[\${last_output}]" -c:v libx264 -preset fast -pix_fmt yuv420p -t "\${MONTAGE_LENGTH}" "\${output_file}"; then
+            print_success "Stacked montage created: \$output_file"
+            print_success "Duration: \${MONTAGE_LENGTH}s, Clips: \${#clips[@]}"
+            return 0
+        else
+            print_error "Failed to create stacked montage"
+            return 1
+        fi
     fi
 }
 
@@ -531,9 +587,31 @@ main() {
     setup_workspace
     download_videos
     extract_clips
-    create_montage
+    
+    # Generate variations
+    for i in \$(seq 1 \$VARIATIONS); do
+        echo ""
+        print_status "🎬 Creating variation \$i of \$VARIATIONS..."
+        
+        if create_montage \$i; then
+            print_success "Variation \$i completed successfully"
+        else
+            print_error "Variation \$i failed"
+        fi
+    done
+    
+    # Clean up temp directory
+    rm -rf "\$WORK_DIR"
     
     print_success "Montage generation complete!"
+    print_success "Files saved to: \$OUTPUT_DIR"
+    
+    # Open output directory
+    if command -v open &> /dev/null; then
+        open "\$OUTPUT_DIR"
+    elif command -v xdg-open &> /dev/null; then
+        xdg-open "\$OUTPUT_DIR"
+    fi
 }
 
 # Run main function
@@ -632,87 +710,90 @@ main "$@"
       console.log("Job ID set:", data.jobId)
 
       // Poll for job status
-      const statusInterval = setInterval(async () => {
-        try {
-          console.log("Polling job status for:", data.jobId)
-          const statusResponse = await fetch(`/api/job-status?jobId=${data.jobId}`)
+      const statusInterval = setInterval(() => {
+        const pollStatus = async () => {
+          try {
+            console.log("Polling job status for:", data.jobId)
+            const statusResponse = await fetch(`/api/job-status?jobId=${data.jobId}`)
 
-          // Check if the status response is JSON
-          const statusContentType = statusResponse.headers.get("content-type")
-          if (!statusContentType || !statusContentType.includes("application/json")) {
-            const text = await statusResponse.text()
-            console.error("Non-JSON status response:", text.substring(0, 500))
-            throw new Error(`Server returned non-JSON status response (${statusResponse.status})`)
-          }
+            // Check if the status response is JSON
+            const statusContentType = statusResponse.headers.get("content-type")
+            if (!statusContentType || !statusContentType.includes("application/json")) {
+              const text = await statusResponse.text()
+              console.error("Non-JSON status response:", text.substring(0, 500))
+              throw new Error(`Server returned non-JSON status response (${statusResponse.status})`)
+            }
 
-          const statusData = await statusResponse.json()
-          console.log("Job status update:", statusData)
+            const statusData = await statusResponse.json()
+            console.log("Job status update:", statusData)
 
-          if (!statusResponse.ok) {
-            throw new Error(statusData.error || "Failed to get job status")
-          }
+            if (!statusResponse.ok) {
+              throw new Error(statusData.error || "Failed to get job status")
+            }
 
-          setJobStatus(statusData.status)
-          setJobProgress(statusData.progress || 0)
+            setJobStatus(statusData.status)
+            setJobProgress(statusData.progress || 0)
 
-          if (statusData.error) {
-            setJobError(statusData.error)
+            if (statusData.error) {
+              setJobError(statusData.error)
+              clearInterval(statusInterval)
+              setIsGenerating(false)
+            }
+
+            if (statusData.downloadUrl) {
+              setDownloadUrl(statusData.downloadUrl)
+            }
+
+            if (statusData.status === "completed" || statusData.status === "failed") {
+              clearInterval(statusInterval)
+              setIsGenerating(statusData.status !== "failed")
+
+              if (statusData.status === "completed") {
+                toast({
+                  title: "Success",
+                  description: "Your montage is ready to download!",
+                })
+
+                // Trigger download if available
+                if (statusData.downloadUrl) {
+                  const a = document.createElement("a")
+                  a.href = statusData.downloadUrl
+                  a.download = customFilename || "montage.mp4"
+                  document.body.appendChild(a)
+                  a.click()
+                  document.body.removeChild(a)
+                }
+              } else if (statusData.status === "failed") {
+                toast({
+                  title: "Error",
+                  description: statusData.error || "Failed to generate montage",
+                  variant: "destructive",
+                })
+              }
+            }
+          } catch (error) {
+            console.error("Error polling job status:", error)
             clearInterval(statusInterval)
             setIsGenerating(false)
+            setJobStatus("failed")
+            setJobError((error as Error).message || "Failed to check job status")
+            toast({
+              title: "Error",
+              description: (error as Error).message || "Failed to check job status",
+              variant: "destructive",
+            })
           }
-
-          if (statusData.downloadUrl) {
-            setDownloadUrl(statusData.downloadUrl)
-          }
-
-          if (statusData.status === "completed" || statusData.status === "failed") {
-            clearInterval(statusInterval)
-            setIsGenerating(statusData.status !== "failed")
-
-            if (statusData.status === "completed") {
-              toast({
-                title: "Success",
-                description: "Your montage is ready to download!",
-              })
-
-              // Trigger download if available
-              if (statusData.downloadUrl) {
-                const a = document.createElement("a")
-                a.href = statusData.downloadUrl
-                a.download = customFilename || "montage.mp4"
-                document.body.appendChild(a)
-                a.click()
-                document.body.removeChild(a)
-              }
-            } else if (statusData.status === "failed") {
-              toast({
-                title: "Error",
-                description: statusData.error || "Failed to generate montage",
-                variant: "destructive",
-              })
-            }
-          }
-        } catch (error) {
-          console.error("Error polling job status:", error)
-          clearInterval(statusInterval)
-          setIsGenerating(false)
-          setJobStatus("failed")
-          setJobError(error.message || "Failed to check job status")
-          toast({
-            title: "Error",
-            description: error.message || "Failed to check job status",
-            variant: "destructive",
-          })
         }
+        pollStatus()
       }, 1000) // Poll every 1 second instead of 2
     } catch (error) {
       console.error("Error starting montage generation:", error)
       setIsGenerating(false)
       setJobStatus("failed")
-      setJobError(error.message || "Failed to start montage generation")
+      setJobError((error as Error).message || "Failed to start montage generation")
       toast({
         title: "Error",
-        description: error.message || "Failed to start montage generation",
+        description: (error as Error).message || "Failed to start montage generation",
         variant: "destructive",
       })
     }
