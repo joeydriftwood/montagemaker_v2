@@ -439,7 +439,7 @@ create_montage() {
         
         # Find clips for this specific variation
         local clip_index=0
-        for f in "\$WORK_DIR"/clip_v\${variation_num}_*.mp4; do
+        for f in "\$WORK_DIR"/clip_v\$1_*.mp4; do
             if [[ -f "\$f" ]] && [[ -s "\$f" ]]; then  # Check if file exists and is not empty
                 clip_index=\$((clip_index + 1))
                 echo "file '\$(basename "\$f")'" >> "\$clip_list"
@@ -489,16 +489,16 @@ create_montage() {
         print_status "Creating stacked montage..."
         
         # Check if we have any clips to work with
-        local clip_count=\$(find "\$WORK_DIR" -name "clip_v\${variation_num}_*.mp4" -type f | wc -l)
+        local clip_count=\$(find "\$WORK_DIR" -name "clip_v\$1_*.mp4" -type f | wc -l)
         if [[ "\$clip_count" -eq 0 ]]; then
-            print_error "No clips found for variation \$variation_num. Skipping stacked montage."
+            print_error "No clips found for variation \$1. Skipping stacked montage."
             return 1
         fi
         
-        print_status "Found \$clip_count clips to include in stacked montage for variation \$variation_num"
+        print_status "Found \$clip_count clips to include in stacked montage for variation \$1"
         
         # Create a list of clips for this variation
-        local clips=(\$(find "\$WORK_DIR" -name "clip_v\${variation_num}_*.mp4" -type f | sort))
+        local clips=(\$(find "\$WORK_DIR" -name "clip_v\$1_*.mp4" -type f | sort))
         
         # Build input files array
         local input_files=()
@@ -704,81 +704,78 @@ main "$@"
       console.log("Job ID set:", data.jobId)
 
       // Poll for job status
-      const statusInterval = setInterval(() => {
-        const pollStatus = async () => {
-          try {
-            console.log("Polling job status for:", data.jobId)
-            const statusResponse = await fetch(`/api/job-status?jobId=${data.jobId}`)
+      const statusInterval = setInterval(async () => {
+        try {
+          console.log("Polling job status for:", data.jobId)
+          const statusResponse = await fetch(`/api/job-status?jobId=${data.jobId}`)
 
-            // Check if the status response is JSON
-            const statusContentType = statusResponse.headers.get("content-type")
-            if (!statusContentType || !statusContentType.includes("application/json")) {
-              const text = await statusResponse.text()
-              console.error("Non-JSON status response:", text.substring(0, 500))
-              throw new Error(`Server returned non-JSON status response (${statusResponse.status})`)
-            }
+          // Check if the status response is JSON
+          const statusContentType = statusResponse.headers.get("content-type")
+          if (!statusContentType || !statusContentType.includes("application/json")) {
+            const text = await statusResponse.text()
+            console.error("Non-JSON status response:", text.substring(0, 500))
+            throw new Error(`Server returned non-JSON status response (${statusResponse.status})`)
+          }
 
-            const statusData = await statusResponse.json()
-            console.log("Job status update:", statusData)
+          const statusData = await statusResponse.json()
+          console.log("Job status update:", statusData)
 
-            if (!statusResponse.ok) {
-              throw new Error(statusData.error || "Failed to get job status")
-            }
+          if (!statusResponse.ok) {
+            throw new Error(statusData.error || "Failed to get job status")
+          }
 
-            setJobStatus(statusData.status)
-            setJobProgress(statusData.progress || 0)
+          setJobStatus(statusData.status)
+          setJobProgress(statusData.progress || 0)
 
-            if (statusData.error) {
-              setJobError(statusData.error)
-              clearInterval(statusInterval)
-              setIsGenerating(false)
-            }
-
-            if (statusData.downloadUrl) {
-              setDownloadUrl(statusData.downloadUrl)
-            }
-
-            if (statusData.status === "completed" || statusData.status === "failed") {
-              clearInterval(statusInterval)
-              setIsGenerating(statusData.status !== "failed")
-
-              if (statusData.status === "completed") {
-                toast({
-                  title: "Success",
-                  description: "Your montage is ready to download!",
-                })
-
-                // Trigger download if available
-                if (statusData.downloadUrl) {
-                  const a = document.createElement("a")
-                  a.href = statusData.downloadUrl
-                  a.download = customFilename || "montage.mp4"
-                  document.body.appendChild(a)
-                  a.click()
-                  document.body.removeChild(a)
-                }
-              } else if (statusData.status === "failed") {
-                toast({
-                  title: "Error",
-                  description: statusData.error || "Failed to generate montage",
-                  variant: "destructive",
-                })
-              }
-            }
-          } catch (error) {
-            console.error("Error polling job status:", error)
+          if (statusData.error) {
+            setJobError(statusData.error)
             clearInterval(statusInterval)
             setIsGenerating(false)
-            setJobStatus("failed")
-            setJobError((error as Error).message || "Failed to check job status")
-            toast({
-              title: "Error",
-              description: (error as Error).message || "Failed to check job status",
-              variant: "destructive",
-            })
           }
+
+          if (statusData.downloadUrl) {
+            setDownloadUrl(statusData.downloadUrl)
+          }
+
+          if (statusData.status === "completed" || statusData.status === "failed") {
+            clearInterval(statusInterval)
+            setIsGenerating(statusData.status !== "failed")
+
+            if (statusData.status === "completed") {
+              toast({
+                title: "Success",
+                description: "Your montage is ready to download!",
+              })
+
+              // Trigger download if available
+              if (statusData.downloadUrl) {
+                const a = document.createElement("a")
+                a.href = statusData.downloadUrl
+                a.download = customFilename || "montage.mp4"
+                document.body.appendChild(a)
+                a.click()
+                document.body.removeChild(a)
+              }
+            } else if (statusData.status === "failed") {
+              toast({
+                title: "Error",
+                description: statusData.error || "Failed to generate montage",
+                variant: "destructive",
+              })
+            }
+          }
+        } catch (error) {
+          console.error("Error polling job status:", error)
+          clearInterval(statusInterval)
+          setIsGenerating(false)
+          setJobStatus("failed")
+          setJobError((error as Error).message || "Failed to check job status")
+          toast({
+            title: "Error",
+            description: (error as Error).message || "Failed to check job status",
+            variant: "destructive",
+          })
         }
-        pollStatus()
       }, 1000) // Poll every 1 second instead of 2
     } catch (error) {
       console.error("Error starting montage generation:", error)
