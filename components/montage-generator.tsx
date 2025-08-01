@@ -141,11 +141,34 @@ export function MontageGenerator() {
     const clipDuration = montageType === "fixed" ? Number.parseFloat(interval) : 60 / Number.parseInt(bpm)
     const numClips = Math.ceil(Number.parseInt(montageLength) / clipDuration)
 
-    // Clean YouTube URLs to remove playlist parameters
+    // Clean URLs and handle Dropbox links
     const cleanVideoUrls = videoLinks
       .filter((url) => url.trim())
       .map((url) => {
         const trimmedUrl = url.trim()
+        
+        // Handle Dropbox links - convert to raw=1 format
+        if (trimmedUrl.includes('dropbox.com')) {
+          let dropboxUrl = trimmedUrl
+          
+          // Replace various Dropbox URL patterns with raw=1
+          if (dropboxUrl.includes('&dl=0')) {
+            dropboxUrl = dropboxUrl.replace(/&dl=0/g, '&raw=1')
+          } else if (dropboxUrl.includes('?dl=0')) {
+            dropboxUrl = dropboxUrl.replace(/\?dl=0/g, '?raw=1')
+          } else if (dropboxUrl.includes('&dl=1')) {
+            dropboxUrl = dropboxUrl.replace(/&dl=1/g, '&raw=1')
+          } else if (dropboxUrl.includes('?dl=1')) {
+            dropboxUrl = dropboxUrl.replace(/\?dl=1/g, '?raw=1')
+          } else if (!dropboxUrl.includes('raw=1')) {
+            // If no dl parameter, add raw=1
+            const separator = dropboxUrl.includes('?') ? '&' : '?'
+            dropboxUrl = `${dropboxUrl}${separator}raw=1`
+          }
+          
+          return dropboxUrl
+        }
+        
         // Remove playlist parameters from YouTube URLs
         if (trimmedUrl.includes('youtube.com') || trimmedUrl.includes('youtu.be')) {
           try {
@@ -160,6 +183,7 @@ export function MontageGenerator() {
             return trimmedUrl
           }
         }
+        
         return trimmedUrl
       })
 
@@ -376,7 +400,16 @@ download_videos() {
 
 # Extract clips from videos (FIXED VERSION based on GAWX script)
 extract_clips() {
-    print_status "Extracting clips..."
+    extract_clips_for_variation 1
+}
+
+# Extract clips for a specific variation (different random positions)
+extract_clips_for_variation() {
+    local variation_num=\$1
+    print_status "Extracting clips for variation \$variation_num..."
+    
+    # Set random seed based on variation number for reproducible randomness
+    RANDOM=\$((variation_num * 12345))
     
     # Get video duration from first source
     local source_file="$WORK_DIR/source_0.mp4"
@@ -607,12 +640,21 @@ main() {
     check_dependencies
     setup_workspace
     download_videos
+    
+    # Extract clips for first variation (or only variation)
     extract_clips
     
     # Generate variations
     for i in \$(seq 1 \$VARIATIONS); do
         echo ""
         print_status "🎬 Creating variation \$i of \$VARIATIONS..."
+        
+        # For each variation, we'll extract clips from different random positions
+        # Clear previous clips
+        rm -f "\$WORK_DIR"/clip*.mp4
+        
+        # Extract clips for this variation (different random positions)
+        extract_clips_for_variation \$i
         
         if create_montage \$i; then
             print_success "Variation \$i completed successfully"

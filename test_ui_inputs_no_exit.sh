@@ -1,36 +1,58 @@
 #!/bin/bash
-# Complete Montage Test Script
-# Created: 8/1/2025, 4:00:00 PM
+# Test script matching the exact UI inputs from the screenshot
+# URL: https://www.youtube.com/watch?v=FIEKXjHgSbs&list=RDdSA1oUt
+# Montage Type: Fixed Interval
+# Layout Type: Cut (Sequential)
+# Interval: 1 second
+# Montage Length: 30 seconds
+# Start Cut: 0 seconds
+# End Cut: 60 seconds
+# Resolution: 720p
+# Variations: 2
+# Folder Name: otis<3
+# Custom Filename: otis
+# Keep Audio: true
+# Add Copyright Line: false
+# Linear Mode: true
+# Text Overlay: otis<3
+# Font: Arial
+# Font Size: 48px
+# Add Text Outline: true
 
-set -e  # Exit on any error
+# set -e
 
-# Configuration
+echo "========================================="
+echo "    Testing UI Inputs from Screenshot    "
+echo "========================================="
+echo ""
+
+# Configuration matching the UI inputs
 SOURCE_URLS=("https://www.youtube.com/watch?v=FIEKXjHgSbs")
-OUTPUT_DIR="$HOME/Downloads/test_montage"
-MONTAGE_LENGTH=10
+OUTPUT_DIR="$HOME/Downloads/otis_3"
+MONTAGE_LENGTH=30
 CLIP_DURATION=1
-NUM_CLIPS=10
+NUM_CLIPS=30
 START_CUT=0
-END_CUT=20
+END_CUT=60
 LAYOUT="cut"
 KEEP_AUDIO=true
 LINEAR_MODE=true
 OUTPUT_WIDTH=1280
 OUTPUT_HEIGHT=720
-CUSTOM_FILENAME="test"
+CUSTOM_FILENAME="otis"
 ADD_COPYRIGHT_LINE=false
-TEXT_OVERLAY="TEST"
+TEXT_OVERLAY="otis<3"
 TEXT_FONT="Arial"
 TEXT_SIZE=48
 TEXT_OUTLINE=true
-VARIATIONS=1
+VARIATIONS=2
 
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 print_status() {
     echo -e "${BLUE}[INFO]${NC} $1"
@@ -53,24 +75,13 @@ check_dependencies() {
     print_status "Checking dependencies..."
     
     if ! command -v ffmpeg &> /dev/null; then
-        print_error "FFmpeg is not installed. Please install it first:"
-        echo "  macOS: brew install ffmpeg"
-        echo "  Ubuntu/Debian: sudo apt install ffmpeg"
-        echo "  Windows: Download from https://ffmpeg.org/download.html"
+        print_error "FFmpeg is not installed"
         exit 1
     fi
     
-    if ! command -v yt-dlp &> /dev/null && ! command -v youtube-dl &> /dev/null; then
-        print_warning "yt-dlp not found. Installing..."
-        if command -v pip3 &> /dev/null; then
-            pip3 install yt-dlp
-        elif command -v pip &> /dev/null; then
-            pip install yt-dlp
-        else
-            print_error "pip not found. Please install yt-dlp manually:"
-            echo "  pip install yt-dlp"
-            exit 1
-        fi
+    if ! command -v yt-dlp &> /dev/null; then
+        print_error "yt-dlp is not installed"
+        exit 1
     fi
     
     print_success "All dependencies are available"
@@ -80,12 +91,10 @@ check_dependencies() {
 setup_workspace() {
     WORK_DIR=$(mktemp -d)
     print_status "Created workspace: $WORK_DIR"
-    
-    # Create output directory
     mkdir -p "$OUTPUT_DIR"
 }
 
-# Download videos
+# Download videos (only once)
 download_videos() {
     print_status "Downloading videos..."
     
@@ -95,50 +104,15 @@ download_videos() {
         print_status "Downloading video $((index + 1)): $url"
         
         if [[ "$url" == *"youtube.com"* ]] || [[ "$url" == *"youtu.be"* ]]; then
-            # YouTube video
             local temp_output="$WORK_DIR/source_$index.%(ext)s"
-            if command -v yt-dlp &> /dev/null; then
-                yt-dlp --no-playlist -f "best[height<=720]" -o "$temp_output" "$url"
-            else
-                youtube-dl --no-playlist -f "best[height<=720]" -o "$temp_output" "$url"
-            fi
+            yt-dlp --no-playlist -f "best[height<=720]" -o "$temp_output" "$url"
             
-            # Find the actual downloaded file and rename it
             local downloaded_file=$(find "$WORK_DIR" -name "source_$index.*" -type f | head -1)
             if [[ -n "$downloaded_file" ]]; then
                 mv "$downloaded_file" "$output_file"
             fi
-            
-        else
-            # Direct video URL or other services
-            print_status "Downloading as direct URL"
-            
-            # Try with curl first
-            if curl -L -f "$url" -o "$output_file"; then
-                print_success "Downloaded via direct URL"
-            else
-                print_warning "Direct download failed, trying with yt-dlp..."
-                # Try with yt-dlp as fallback (supports many sites)
-                local temp_output="$WORK_DIR/source_$index.%(ext)s"
-                if command -v yt-dlp &> /dev/null; then
-                    if yt-dlp --no-playlist -f "best[height<=720]" -o "$temp_output" "$url"; then
-                        local downloaded_file=$(find "$WORK_DIR" -name "source_$index.*" -type f | head -1)
-                        if [[ -n "$downloaded_file" ]]; then
-                            mv "$downloaded_file" "$output_file"
-                            print_success "Downloaded via yt-dlp"
-                        fi
-                    else
-                        print_error "Failed to download video $((index + 1))"
-                        exit 1
-                    fi
-                else
-                    print_error "Failed to download video $((index + 1))"
-                    exit 1
-                fi
-            fi
         fi
         
-        # Verify the file was downloaded and has content
         if [[ -f "$output_file" ]] && [[ -s "$output_file" ]]; then
             print_success "Downloaded video $((index + 1))"
         else
@@ -150,9 +124,13 @@ download_videos() {
     done
 }
 
-# Extract clips from videos
-extract_clips() {
-    print_status "Extracting clips..."
+# Extract clips for a specific variation (different random positions)
+extract_clips_for_variation() {
+    local variation_num=$1
+    print_status "Extracting clips for variation $variation_num..."
+    
+    # Set random seed based on variation number for reproducible randomness
+    RANDOM=$((variation_num * 12345))
     
     # Get video duration from first source
     local source_file="$WORK_DIR/source_0.mp4"
@@ -160,10 +138,6 @@ extract_clips() {
         print_error "Source file not found: $source_file"
         exit 1
     fi
-    
-    # Check file size
-    local file_size=$(stat -f%z "$source_file" 2>/dev/null || stat -c%s "$source_file" 2>/dev/null || echo "0")
-    print_status "Source file size: ${file_size} bytes"
     
     local video_duration=$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$source_file" | cut -d. -f1)
     print_status "Video duration: ${video_duration}s"
@@ -203,7 +177,7 @@ extract_clips() {
         print_status "Extracting clip $j at position ${start_time}s"
         
         # Extract clip with proper error handling
-        if ffmpeg -ss $start_time -i "$source_file" -t $CLIP_DURATION -c:v libx264 -pix_fmt yuv420p -an -y "$output_clip"; then
+        if ffmpeg -ss $start_time -i "$source_file" -t $CLIP_DURATION -c:v libx264 -pix_fmt yuv420p -an -y "$output_clip" > /dev/null 2>&1; then
             # Check if the clip was actually created and has content
             if [[ -f "$output_clip" ]] && [[ -s "$output_clip" ]]; then
                 local clip_size=$(stat -f%z "$output_clip" 2>/dev/null || stat -c%s "$output_clip" 2>/dev/null || echo "0")
@@ -217,19 +191,20 @@ extract_clips() {
         fi
     done
     
-    print_status "Successfully extracted $successful_clips out of $NUM_CLIPS clips"
+    print_status "Successfully extracted $successful_clips out of $NUM_CLIPS clips for variation $variation_num"
     
     if [[ $successful_clips -eq 0 ]]; then
-        print_error "No clips were successfully extracted. Exiting..."
+        print_error "No clips were successfully extracted for variation $variation_num. Exiting..."
         exit 1
     fi
 }
 
 # Create montage
 create_montage() {
-    print_status "Creating montage..."
+    local variation_num=$1
+    print_status "Creating montage for variation $variation_num..."
     
-    local output_file="$OUTPUT_DIR/${CUSTOM_FILENAME}_v$(printf "%02d" $1).mp4"
+    local output_file="$OUTPUT_DIR/${CUSTOM_FILENAME}_v$(printf "%02d" $variation_num).mp4"
     
     if [[ "$LAYOUT" == "cut" ]]; then
         print_status "Creating cut montage..."
@@ -264,15 +239,16 @@ create_montage() {
         fi
         
         # Create the montage
-        print_status "Creating montage variation $1..."
+        print_status "Creating montage variation $variation_num..."
         cd "$WORK_DIR"
-        if ffmpeg -f concat -safe 0 -i "clip_list.txt" -c:v libx264 -pix_fmt yuv420p "$output_file"; then
+        if ffmpeg -f concat -safe 0 -i "clip_list.txt" -c:v libx264 -pix_fmt yuv420p "$output_file" > /dev/null 2>&1; then
             # Wait a moment to ensure file is written
             sleep 1
             
             # Check if output file exists and has size
             if [[ -f "$output_file" ]] && [[ -s "$output_file" ]]; then
-                print_success "Montage created: $output_file"
+                local file_size=$(stat -f%z "$output_file" 2>/dev/null || stat -c%s "$output_file" 2>/dev/null || echo "0")
+                print_success "Montage created: $output_file ($file_size bytes)"
                 print_success "Duration: ${MONTAGE_LENGTH}s, Interval: ${CLIP_DURATION}s, Clips: ${clip_index}"
                 cd - > /dev/null
                 return 0
@@ -283,10 +259,9 @@ create_montage() {
             fi
         else
             cd - > /dev/null
-            print_error "Failed to create montage for variation $1"
+            print_error "Failed to create montage for variation $variation_num"
             return 1
         fi
-        
     else
         print_status "Creating stacked montage..."
         
@@ -362,8 +337,9 @@ create_montage() {
         done
         
         # Execute the ffmpeg command
-        if ffmpeg "${input_files[@]}" -filter_complex "${filter}" -map "[${last_output}]" -c:v libx264 -preset fast -pix_fmt yuv420p -t "${MONTAGE_LENGTH}" "${output_file}"; then
-            print_success "Stacked montage created: $output_file"
+        if ffmpeg "${input_files[@]}" -filter_complex "${filter}" -map "[${last_output}]" -c:v libx264 -preset fast -pix_fmt yuv420p -t "${MONTAGE_LENGTH}" "${output_file}" > /dev/null 2>&1; then
+            local file_size=$(stat -f%z "$output_file" 2>/dev/null || stat -c%s "$output_file" 2>/dev/null || echo "0")
+            print_success "Stacked montage created: $output_file ($file_size bytes)"
             print_success "Duration: ${MONTAGE_LENGTH}s, Clips: ${#clips[@]}"
             return 0
         else
@@ -379,16 +355,37 @@ main() {
     echo "         Montage Generator Script        "
     echo "========================================="
     echo ""
+    echo "UI Inputs from Screenshot:"
+    echo "  URL: ${SOURCE_URLS[0]}"
+    echo "  Montage Type: Fixed Interval"
+    echo "  Layout Type: Cut (Sequential)"
+    echo "  Interval: ${CLIP_DURATION}s"
+    echo "  Montage Length: ${MONTAGE_LENGTH}s"
+    echo "  Variations: ${VARIATIONS}"
+    echo "  Folder Name: otis<3"
+    echo "  Custom Filename: ${CUSTOM_FILENAME}"
+    echo "  Text Overlay: ${TEXT_OVERLAY}"
+    echo ""
     
     check_dependencies
     setup_workspace
     download_videos
-    extract_clips
+    
+    # Extract clips for first variation (or only variation)
+    extract_clips_for_variation 1
     
     # Generate variations
     for i in $(seq 1 $VARIATIONS); do
         echo ""
         print_status "🎬 Creating variation $i of $VARIATIONS..."
+        
+        # For each variation, we'll extract clips from different random positions
+        # Clear previous clips (except for first variation)
+        if [[ $i -gt 1 ]]; then
+            rm -f "$WORK_DIR"/clip*.mp4
+            # Extract clips for this variation (different random positions)
+            extract_clips_for_variation $i
+        fi
         
         if create_montage $i; then
             print_success "Variation $i completed successfully"
@@ -402,6 +399,11 @@ main() {
     
     print_success "Montage generation complete!"
     print_success "Files saved to: $OUTPUT_DIR"
+    
+    # List output files
+    echo ""
+    echo "Generated files:"
+    ls -la "$OUTPUT_DIR"
     
     # Open output directory
     if command -v open &> /dev/null; then
