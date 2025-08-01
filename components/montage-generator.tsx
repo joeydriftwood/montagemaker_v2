@@ -153,14 +153,14 @@ export function MontageGenerator() {
             // Keep only the video ID parameter
             const videoId = urlObj.searchParams.get('v')
             if (videoId) {
-              return `"https://www.youtube.com/watch?v=${videoId}"`
+              return `https://www.youtube.com/watch?v=${videoId}`
             }
           } catch (e) {
             // If URL parsing fails, return original
-            return `"${trimmedUrl}"`
+            return trimmedUrl
           }
         }
-        return `"${trimmedUrl}"`
+        return trimmedUrl
       })
 
     const script = `#!/bin/bash
@@ -170,7 +170,7 @@ export function MontageGenerator() {
 set -e  # Exit on any error
 
 # Configuration
-SOURCE_URLS=(${cleanVideoUrls.join(" ")})
+SOURCE_URLS=("${cleanVideoUrls.join('" "')}")
 OUTPUT_DIR="$HOME/Downloads/${cleanFolderName}"
 MONTAGE_LENGTH=${montageLength}
 CLIP_DURATION=${clipDuration}
