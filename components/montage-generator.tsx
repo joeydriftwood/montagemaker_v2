@@ -274,213 +274,154 @@ setup_workspace() {
     mkdir -p "\$OUTPUT_DIR"
 }
 
-# Download videos
-download_videos() {
-    print_status "Downloading videos..."
+# Download specific clips directly (no full video download)
+download_clips() {
+    print_status "Downloading specific clips directly..."
     
     local index=0
     for url in \${SOURCE_URLS[@]}; do
-        local output_file="\$WORK_DIR/source_\$index.mp4"
-        print_status "Downloading video \$((index + 1)): \$url"
+        print_status "Processing source \$((index + 1)): \$url"
         
+        # Get video duration first (without downloading full video)
+        local video_duration=0
         if [[ "\$url" == *"youtube.com"* ]] || [[ "\$url" == *"youtu.be"* ]]; then
-            # YouTube video
-            local temp_output="\$WORK_DIR/source_\$index.%(ext)s"
+            # Get duration from YouTube without downloading
             if command -v yt-dlp &> /dev/null; then
-                yt-dlp --no-playlist -f "best[height<=720]" -o "\$temp_output" "\$url"
+                video_duration=\$(yt-dlp --get-duration "\$url" 2>/dev/null | cut -d: -f1,2 | awk -F: '{print \$1*60 + \$2}' | tail -1)
             else
-                youtube-dl --no-playlist -f "best[height<=720]" -o "\$temp_output" "\$url"
+                video_duration=\$(youtube-dl --get-duration "\$url" 2>/dev/null | cut -d: -f1,2 | awk -F: '{print \$1*60 + \$2}' | tail -1)
             fi
-            
-            # Find the actual downloaded file and rename it
-            local downloaded_file=\$(find "\$WORK_DIR" -name "source_\$index.*" -type f | head -1)
-            if [[ -n "\$downloaded_file" ]]; then
-                mv "\$downloaded_file" "\$output_file"
-            fi
-            
-        elif [[ "\$url" == *"dropbox.com"* ]]; then
-            # Dropbox link - convert share link to direct download
-            local direct_url="\$url"
-            
-            # Convert Dropbox share link to direct download link
-            if [[ "\$url" == *"dropbox.com/s/"* ]]; then
-                # Replace dropbox.com with dl.dropboxusercontent.com and remove ?dl=0
-                direct_url=\$(echo "\$url" | sed 's/dropbox\\.com/dl.dropboxusercontent.com/g' | sed 's/?dl=0//g')
-            elif [[ "\$url" == *"?dl=0"* ]]; then
-                # Change dl=0 to raw=1 for direct download
-                direct_url=\$(echo "\$url" | sed 's/?dl=0/?raw=1/g')
-            elif [[ "\$url" == *"?dl=1"* ]]; then
-                # Change dl=1 to raw=1 for direct download
-                direct_url=\$(echo "\$url" | sed 's/?dl=1/?raw=1/g')
-            elif [[ "\$url" == *"&dl=0"* ]]; then
-                # Change &dl=0 to &raw=1 for direct download
-                direct_url=\$(echo "\$url" | sed 's/&dl=0/\&raw=1/g')
-            elif [[ "\$url" == *"&dl=1"* ]]; then
-                # Change &dl=1 to &raw=1 for direct download
-                direct_url=\$(echo "\$url" | sed 's/&dl=1/\&raw=1/g')
-            fi
-            
-            print_status "Converted Dropbox URL: \$direct_url"
-            
-            # Download with curl, following redirects
-            if curl -L -f "\$direct_url" -o "\$output_file"; then
-                print_success "Downloaded from Dropbox"
-            else
-                print_error "Failed to download from Dropbox. Try using a direct download link."
-                exit 1
-            fi
-            
-        elif [[ "\$url" == *"drive.google.com"* ]]; then
-            # Google Drive link
-            print_status "Detected Google Drive link"
-            
-            # Extract file ID from various Google Drive URL formats
-            local file_id=""
-            if [[ "\$url" == *"/file/d/"* ]]; then
-                file_id=\$(echo "\$url" | sed -n 's/.*\\/file\\/d\\/([^\\/]*).*/\\1/p')
-            elif [[ "\$url" == *"id="* ]]; then
-                file_id=\$(echo "\$url" | sed -n 's/.*id=\$$[^&]*\$$.*/\\1/p')
-            fi
-            
-            if [[ -n "\$file_id" ]]; then
-                local gdrive_url="https://drive.google.com/uc?export=download&id=\$file_id"
-                print_status "Using Google Drive direct URL: \$gdrive_url"
-                
-                if curl -L -f "\$gdrive_url" -o "\$output_file"; then
-                    print_success "Downloaded from Google Drive"
-                else
-                    print_error "Failed to download from Google Drive. File may be too large or require permissions."
-                    exit 1
-                fi
-            else
-                print_error "Could not extract file ID from Google Drive URL"
-                exit 1
-            fi
-            
         else
-            # Direct video URL or other services
-            print_status "Downloading as direct URL"
-            
-            # Try with curl first
-            if curl -L -f "\$url" -o "\$output_file"; then
-                print_success "Downloaded via direct URL"
+            # For other sources, we'll need to download a small sample to get duration
+            local temp_file="\$WORK_DIR/temp_duration.mp4"
+            if [[ "\$url" == *"dropbox.com"* ]]; then
+                # Convert Dropbox URL
+                local direct_url="\$url"
+                if [[ "\$url" == *"&dl=0"* ]]; then
+                    direct_url=\$(echo "\$url" | sed 's/&dl=0/\&raw=1/g')
+                elif [[ "\$url" == *"?dl=0"* ]]; then
+                    direct_url=\$(echo "\$url" | sed 's/?dl=0/?raw=1/g')
+                fi
+                curl -L -f "\$direct_url" -o "\$temp_file" -r 0-1048576 2>/dev/null || true
             else
-                print_warning "Direct download failed, trying with yt-dlp..."
-                # Try with yt-dlp as fallback (supports many sites)
-                local temp_output="\$WORK_DIR/source_\$index.%(ext)s"
-                if command -v yt-dlp &> /dev/null; then
-                    if yt-dlp --no-playlist -f "best[height<=720]" -o "\$temp_output" "\$url"; then
-                        local downloaded_file=\$(find "\$WORK_DIR" -name "source_\$index.*" -type f | head -1)
-                        if [[ -n "\$downloaded_file" ]]; then
-                            mv "\$downloaded_file" "\$output_file"
-                            print_success "Downloaded via yt-dlp"
+                curl -L -f "\$url" -o "\$temp_file" -r 0-1048576 2>/dev/null || true
+            fi
+            if [[ -f "\$temp_file" ]]; then
+                video_duration=\$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "\$temp_file" 2>/dev/null | cut -d. -f1 || echo "0")
+                rm -f "\$temp_file"
+            fi
+        fi
+        
+        if [[ "\$video_duration" -eq 0 ]]; then
+            print_warning "Could not determine video duration, using default 60 seconds"
+            video_duration=60
+        fi
+        
+        print_status "Video duration: \${video_duration}s"
+        
+        # Calculate usable range
+        local max_offset=\$((video_duration - END_CUT - CLIP_DURATION))
+        if [[ \$max_offset -le \$START_CUT ]]; then
+            max_offset=\$((START_CUT + 1))
+            print_warning "Video may be too short for selected parameters"
+        fi
+        
+        # Download clips directly for each variation
+        for variation in \$(seq 1 \$VARIATIONS); do
+            print_status "Downloading clips for variation \$variation..."
+            
+            # Set random seed for this variation
+            RANDOM=\$((variation * 12345))
+            
+            for j in \$(seq 1 \$NUM_CLIPS); do
+                # Calculate start time
+                local start_time
+                if [[ "\$LINEAR_MODE" == "true" ]]; then
+                    # Linear mode: distribute clips evenly
+                    local usable_duration=\$((max_offset - START_CUT))
+                    local segment_size=\$((usable_duration / NUM_CLIPS))
+                    start_time=\$((START_CUT + (j - 1) * segment_size))
+                else
+                    # Random mode: random position within usable range
+                    local range=\$((max_offset - START_CUT))
+                    start_time=\$((START_CUT + RANDOM % range))
+                fi
+                
+                # Ensure we don't go past the end
+                if [[ \$((start_time + CLIP_DURATION)) -gt \$((video_duration - END_CUT)) ]]; then
+                    start_time=\$((video_duration - END_CUT - CLIP_DURATION))
+                fi
+                
+                local output_clip="\$WORK_DIR/clip_v\${variation}_\$(printf "%02d" \$j).mp4"
+                
+                print_status "Downloading clip \$j for variation \$variation at position \${start_time}s"
+                
+                # Download specific clip directly
+                if [[ "\$url" == *"youtube.com"* ]] || [[ "\$url" == *"youtu.be"* ]]; then
+                    # YouTube - download specific time range
+                    if command -v yt-dlp &> /dev/null; then
+                        if yt-dlp --download-sections "*\${start_time}-\$((start_time + CLIP_DURATION))" -f "best[height<=720]" -o "\$output_clip" "\$url" > /dev/null 2>&1; then
+                            print_success "Downloaded YouTube clip \$j for variation \$variation"
+                        else
+                            print_error "Failed to download YouTube clip \$j for variation \$variation"
                         fi
                     else
-                        print_error "Failed to download video \$((index + 1))"
-                        exit 1
+                        if youtube-dl --download-sections "*\${start_time}-\$((start_time + CLIP_DURATION))" -f "best[height<=720]" -o "\$output_clip" "\$url" > /dev/null 2>&1; then
+                            print_success "Downloaded YouTube clip \$j for variation \$variation"
+                        else
+                            print_error "Failed to download YouTube clip \$j for variation \$variation"
+                        fi
                     fi
                 else
-                    print_error "Failed to download video \$((index + 1))"
-                    exit 1
+                    # Other sources - use ffmpeg to extract clip
+                    local temp_source="\$WORK_DIR/temp_source_\$index.mp4"
+                    
+                    # Download small portion around the clip time
+                    local download_start=\$((start_time - 5))
+                    if [[ \$download_start -lt 0 ]]; then download_start=0; fi
+                    local download_duration=\$((CLIP_DURATION + 10))
+                    
+                    if [[ "\$url" == *"dropbox.com"* ]]; then
+                        # Convert Dropbox URL
+                        local direct_url="\$url"
+                        if [[ "\$url" == *"&dl=0"* ]]; then
+                            direct_url=\$(echo "\$url" | sed 's/&dl=0/\&raw=1/g')
+                        elif [[ "\$url" == *"?dl=0"* ]]; then
+                            direct_url=\$(echo "\$url" | sed 's/?dl=0/?raw=1/g')
+                        fi
+                        curl -L -f "\$direct_url" -o "\$temp_source" -r \$((download_start * 1024))-\$(((download_start + download_duration) * 1024)) 2>/dev/null || true
+                    else
+                        curl -L -f "\$url" -o "\$temp_source" -r \$((download_start * 1024))-\$(((download_start + download_duration) * 1024)) 2>/dev/null || true
+                    fi
+                    
+                    if [[ -f "\$temp_source" ]] && [[ -s "\$temp_source" ]]; then
+                        # Extract the specific clip
+                        if ffmpeg -ss 5 -i "\$temp_source" -t \$CLIP_DURATION -c:v libx264 -pix_fmt yuv420p -an -y "\$output_clip" > /dev/null 2>&1; then
+                            print_success "Downloaded clip \$j for variation \$variation"
+                        else
+                            print_error "Failed to extract clip \$j for variation \$variation"
+                        fi
+                        rm -f "\$temp_source"
+                    else
+                        print_error "Failed to download source portion for clip \$j"
+                    fi
                 fi
-            fi
-        fi
-        
-        # Verify the file was downloaded and has content
-        if [[ -f "\$output_file" ]] && [[ -s "\$output_file" ]]; then
-            print_success "Downloaded video \$((index + 1))"
-        else
-            print_error "Downloaded file is empty or missing: \$output_file"
-            exit 1
-        fi
+                
+                # Verify clip was created
+                if [[ -f "\$output_clip" ]] && [[ -s "\$output_clip" ]]; then
+                    local clip_size=\$(stat -f%z "\$output_clip" 2>/dev/null || stat -c%s "\$output_clip" 2>/dev/null || echo "0")
+                    print_success "Clip \$j for variation \$variation ready (\${clip_size} bytes)"
+                else
+                    print_error "Clip \$j for variation \$variation is empty or missing"
+                fi
+            done
+        done
         
         ((index++))
     done
 }
 
-# Extract clips from videos (FIXED VERSION based on GAWX script)
-extract_clips() {
-    extract_clips_for_variation 1
-}
 
-# Extract clips for a specific variation (different random positions)
-extract_clips_for_variation() {
-    local variation_num=\$1
-    print_status "Extracting clips for variation \$variation_num..."
-    
-    # Set random seed based on variation number for reproducible randomness
-    RANDOM=\$((variation_num * 12345))
-    
-    # Get video duration from first source
-    local source_file="$WORK_DIR/source_0.mp4"
-    if [[ ! -f "$source_file" ]]; then
-        print_error "Source file not found: $source_file"
-        exit 1
-    fi
-    
-    # Check file size
-    local file_size=\$(stat -f%z "\$source_file" 2>/dev/null || stat -c%s "\$source_file" 2>/dev/null || echo "0")
-    print_status "Source file size: \${file_size} bytes"
-    
-    local video_duration=\$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "\$source_file" | cut -d. -f1)
-    print_status "Video duration: \${video_duration}s"
-    
-    # Calculate usable range
-    local max_offset=\$((video_duration - END_CUT - CLIP_DURATION))
-    if [[ \$max_offset -le \$START_CUT ]]; then
-        max_offset=\$((START_CUT + 1))
-        print_warning "Video may be too short for selected parameters"
-    fi
-    
-    print_status "Will extract clips from \${START_CUT}s to \${max_offset}s"
-    
-    local successful_clips=0
-    
-    for j in \$(seq 1 \$NUM_CLIPS); do
-        # Calculate start time
-        local start_time
-        if [[ "\$LINEAR_MODE" == "true" ]]; then
-            # Linear mode: distribute clips evenly
-            local usable_duration=\$((max_offset - START_CUT))
-            local segment_size=\$((usable_duration / NUM_CLIPS))
-            start_time=\$((START_CUT + (j - 1) * segment_size))
-        else
-            # Random mode: random position within usable range
-            local range=\$((max_offset - START_CUT))
-            start_time=\$((START_CUT + RANDOM % range))
-        fi
-        
-        # Ensure we don't go past the end
-        if [[ \$((start_time + CLIP_DURATION)) -gt \$((video_duration - END_CUT)) ]]; then
-            start_time=\$((video_duration - END_CUT - CLIP_DURATION))
-        fi
-        
-        local output_clip="\$WORK_DIR/clip\$(printf "%02d" \$j).mp4"
-        
-        print_status "Extracting clip \$j at position \${start_time}s"
-        
-        # Extract clip with proper error handling
-        if ffmpeg -ss \$start_time -i "\$source_file" -t \$CLIP_DURATION -c:v libx264 -pix_fmt yuv420p -an -y "\$output_clip"; then
-            # Check if the clip was actually created and has content
-            if [[ -f "\$output_clip" ]] && [[ -s "\$output_clip" ]]; then
-                local clip_size=\$(stat -f%z "\$output_clip" 2>/dev/null || stat -c%s "\$output_clip" 2>/dev/null || echo "0")
-                print_success "Successfully extracted clip \$j (\${clip_size} bytes)"
-                successful_clips=\$((successful_clips + 1))
-            else
-                print_error "Clip \$j was created but is empty or missing"
-            fi
-        else
-            print_error "Failed to create clip \$j — skipping..."
-        fi
-    done
-    
-    print_status "Successfully extracted \$successful_clips out of \$NUM_CLIPS clips"
-    
-    if [[ \$successful_clips -eq 0 ]]; then
-        print_error "No clips were successfully extracted. Exiting..."
-        exit 1
-    fi
-}
 
 # Create montage (FIXED VERSION based on GAWX script)
 create_montage() {
@@ -496,9 +437,9 @@ create_montage() {
         print_status "Creating clip list..."
         > "\$clip_list"
         
-        # Find all mp4 files in the temp directory and add them to the clip list
+        # Find clips for this specific variation
         local clip_index=0
-        for f in "\$WORK_DIR"/clip*.mp4; do
+        for f in "\$WORK_DIR"/clip_v\${variation_num}_*.mp4; do
             if [[ -f "\$f" ]] && [[ -s "\$f" ]]; then  # Check if file exists and is not empty
                 clip_index=\$((clip_index + 1))
                 echo "file '\$(basename "\$f")'" >> "\$clip_list"
@@ -548,16 +489,16 @@ create_montage() {
         print_status "Creating stacked montage..."
         
         # Check if we have any clips to work with
-        local clip_count=\$(find "\$WORK_DIR" -name "clip*.mp4" -type f | wc -l)
+        local clip_count=\$(find "\$WORK_DIR" -name "clip_v\${variation_num}_*.mp4" -type f | wc -l)
         if [[ "\$clip_count" -eq 0 ]]; then
-            print_error "No clips found in temp directory. Skipping stacked montage."
+            print_error "No clips found for variation \$variation_num. Skipping stacked montage."
             return 1
         fi
         
-        print_status "Found \$clip_count clips to include in stacked montage"
+        print_status "Found \$clip_count clips to include in stacked montage for variation \$variation_num"
         
-        # Create a list of all clips
-        local clips=(\$(find "\$WORK_DIR" -name "clip*.mp4" -type f | sort))
+        # Create a list of clips for this variation
+        local clips=(\$(find "\$WORK_DIR" -name "clip_v\${variation_num}_*.mp4" -type f | sort))
         
         # Build input files array
         local input_files=()
@@ -639,22 +580,12 @@ main() {
     
     check_dependencies
     setup_workspace
-    download_videos
+    download_clips
     
-    # Extract clips for first variation (or only variation)
-    extract_clips
-    
-    # Generate variations
+    # Generate variations (clips already downloaded for each variation)
     for i in \$(seq 1 \$VARIATIONS); do
         echo ""
         print_status "🎬 Creating variation \$i of \$VARIATIONS..."
-        
-        # For each variation, we'll extract clips from different random positions
-        # Clear previous clips
-        rm -f "\$WORK_DIR"/clip*.mp4
-        
-        # Extract clips for this variation (different random positions)
-        extract_clips_for_variation \$i
         
         if create_montage \$i; then
             print_success "Variation \$i completed successfully"
