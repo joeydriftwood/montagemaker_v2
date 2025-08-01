@@ -255,7 +255,7 @@ download_videos() {
     print_status "Downloading videos..."
     
     local index=0
-    for url in "\${SOURCE_URLS[@]}"; do
+    for url in \${SOURCE_URLS[@]}; do
         local output_file="\$WORK_DIR/source_\$index.mp4"
         print_status "Downloading video \$((index + 1)): \$url"
         
@@ -379,11 +379,15 @@ extract_clips() {
     print_status "Extracting clips..."
     
     # Get video duration from first source
-    local source_file="\$WORK_DIR/source_0.mp4"
-    if [[ ! -f "\$source_file" ]]; then
-        print_error "Source file not found: \$source_file"
+    local source_file="$WORK_DIR/source_0.mp4"
+    if [[ ! -f "$source_file" ]]; then
+        print_error "Source file not found: $source_file"
         exit 1
     fi
+    
+    # Check file size
+    local file_size=\$(stat -f%z "\$source_file" 2>/dev/null || stat -c%s "\$source_file" 2>/dev/null || echo "0")
+    print_status "Source file size: \${file_size} bytes"
     
     local video_duration=\$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "\$source_file" | cut -d. -f1)
     print_status "Video duration: \${video_duration}s"
@@ -394,6 +398,8 @@ extract_clips() {
         max_offset=\$((START_CUT + 1))
         print_warning "Video may be too short for selected parameters"
     fi
+    
+    print_status "Will extract clips from \${START_CUT}s to \${max_offset}s"
     
     local successful_clips=0
     
@@ -420,10 +426,16 @@ extract_clips() {
         
         print_status "Extracting clip \$j at position \${start_time}s"
         
-        # Extract clip (simplified, no scaling for now)
-        if ffmpeg -ss \$start_time -i "\$source_file" -t \$CLIP_DURATION -c:v libx264 -pix_fmt yuv420p -an -y "\$output_clip" < /dev/null 2>/dev/null; then
-            print_success "Successfully extracted clip \$j"
-            successful_clips=\$((successful_clips + 1))
+        # Extract clip with proper error handling
+        if ffmpeg -ss \$start_time -i "\$source_file" -t \$CLIP_DURATION -c:v libx264 -pix_fmt yuv420p -an -y "\$output_clip"; then
+            # Check if the clip was actually created and has content
+            if [[ -f "\$output_clip" ]] && [[ -s "\$output_clip" ]]; then
+                local clip_size=\$(stat -f%z "\$output_clip" 2>/dev/null || stat -c%s "\$output_clip" 2>/dev/null || echo "0")
+                print_success "Successfully extracted clip \$j (\${clip_size} bytes)"
+                successful_clips=\$((successful_clips + 1))
+            else
+                print_error "Clip \$j was created but is empty or missing"
+            fi
         else
             print_error "Failed to create clip \$j — skipping..."
         fi
