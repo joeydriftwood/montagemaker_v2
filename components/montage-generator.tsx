@@ -253,7 +253,7 @@ check_dependencies() {
 # Create workspace
 create_workspace() {
     local workspace=\$(mktemp -d)
-    log_info "Created workspace: \$workspace"
+    log_info "Created workspace: \$workspace" >&2
     echo "\$workspace"
 }
 
