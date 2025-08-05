@@ -21,6 +21,7 @@ export function MontageGenerator() {
   const [montageType, setMontageType] = useState<string>("fixed")
   const [layoutType, setLayoutType] = useState<string>("cut")
   const [interval, setInterval] = useState<string>("1")
+  const [bpm, setBpm] = useState<string>("120")
   const [montageLength, setMontageLength] = useState<string>("30")
   const [startCutAt, setStartCutAt] = useState<string>("0")
   const [endCutAt, setEndCutAt] = useState<string>("60")
@@ -86,6 +87,7 @@ export function MontageGenerator() {
         montageType,
         layoutType,
         interval: Number.parseFloat(interval),
+        bpm: Number.parseFloat(bpm),
         montageLength: Number.parseInt(montageLength),
         startCutAt: Number.parseFloat(startCutAt),
         endCutAt: Number.parseFloat(endCutAt),
@@ -166,6 +168,7 @@ export function MontageGenerator() {
       montageType,
       layoutType,
       interval,
+      bpm,
       montageLength,
       startCutAt,
       endCutAt,
@@ -192,6 +195,13 @@ export function MontageGenerator() {
       '1080p': '1920x1080'
     }
     const targetResolution = resolutionMap[resolution] || '1280x720'
+
+    // Calculate interval based on montage type
+    let clipInterval = interval
+    if (montageType === 'bpm' && bpm) {
+      // Convert BPM to seconds (60 seconds / BPM)
+      clipInterval = (60 / parseFloat(bpm)).toFixed(2)
+    }
 
     let script = `#!/bin/bash
 
@@ -301,20 +311,43 @@ download_clip() {
     fi
 }
 
-# Generate random position within video bounds
-get_random_position() {
-    local max_duration="\$1"
+# Generate clip positions based on mode
+generate_clip_positions() {
+    local duration="\$1"
     local clip_duration="\$2"
-    local max_start=\$((max_duration - clip_duration))
+    local clips_needed="\$3"
+    local start_cut="\$4"
+    local end_cut="\$5"
+    local linear_mode="\$6"
+    
+    local available_duration=\$((duration - start_cut - end_cut))
+    local max_start=\$((available_duration - clip_duration))
     
     if [ \$max_start -le 0 ]; then
         max_start=0
     fi
     
-    echo \$((RANDOM % (max_start + 1)))
+    local positions=()
+    
+    if [ "\$linear_mode" = "true" ]; then
+        # Sequential selection
+        local step=\$((max_start / clips_needed))
+        for i in \$(seq 0 \$((clips_needed - 1))); do
+            local pos=\$((start_cut + (i * step)))
+            positions+=(\$pos)
+        done
+    else
+        # Random selection
+        for i in \$(seq 1 \$clips_needed); do
+            local pos=\$((start_cut + (RANDOM % (max_start + 1))))
+            positions+=(\$pos)
+        done
+    fi
+    
+    echo "\${positions[@]}"
 }
 
-# Create montage
+# Create montage based on layout type
 create_montage() {
     local workspace="\$1"
     local script_name="\$2"
@@ -323,13 +356,36 @@ create_montage() {
     local font="\$5"
     local font_size="\$6"
     local add_outline="\$7"
+    local layout_type="\$8"
+    local add_copyright="\$9"
+    local keep_audio="\${10}"
     
     log_info "Creating montage..."
+    
+    if [ "\$layout_type" = "stacked" ]; then
+        create_stacked_montage "\$workspace" "\$script_name" "\$target_resolution" "\$overlay_text" "\$font" "\$font_size" "\$add_outline" "\$add_copyright" "\$keep_audio"
+    else
+        create_sequential_montage "\$workspace" "\$script_name" "\$target_resolution" "\$overlay_text" "\$font" "\$font_size" "\$add_outline" "\$add_copyright" "\$keep_audio"
+    fi
+}
+
+# Create sequential montage (easy cuts)
+create_sequential_montage() {
+    local workspace="\$1"
+    local script_name="\$2"
+    local target_resolution="\$3"
+    local overlay_text="\$4"
+    local font="\$5"
+    local font_size="\$6"
+    local add_outline="\$7"
+    local add_copyright="\$8"
+    local keep_audio="\$9"
     
     # Create clip list for FFmpeg
     local clip_list="\${workspace}/clip_list.txt"
     rm -f "\$clip_list"
     
+    log_info "Creating sequential montage..."
     log_info "Creating clip list..."
     
     # Find all clip files and add them to the list
@@ -347,19 +403,33 @@ create_montage() {
     # Prepare FFmpeg command
     local ffmpeg_cmd="ffmpeg -f concat -safe 0 -i \"\$clip_list\""
     
+    # Build video filter
+    local vf_parts=("scale=\$target_resolution")
+    
+    # Add copyright line if enabled
+    if [ "\$add_copyright" = "true" ]; then
+        vf_parts+=("drawbox=y=0:color=black@0.8:width=iw:height=ih*0.25:t=fill")
+    fi
+    
     # Add text overlay if specified
     if [ -n "\$overlay_text" ]; then
         log_info "Adding text overlay: \$overlay_text"
-        
         local text_filter="drawtext=text='\$overlay_text':fontfile=/System/Library/Fonts/\${font}.ttf:fontsize=\$font_size:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2"
         
         if [ "\$add_outline" = "true" ]; then
             text_filter="\${text_filter}:shadowcolor=black:shadowx=2:shadowy=2"
         fi
         
-        ffmpeg_cmd="\${ffmpeg_cmd} -vf \"scale=\$target_resolution,\$text_filter\""
-    else
-        ffmpeg_cmd="\${ffmpeg_cmd} -vf \"scale=\$target_resolution\""
+        vf_parts+=("\$text_filter")
+    fi
+    
+    # Combine video filters
+    local vf_string="\$(IFS=,; echo "\${vf_parts[*]}")"
+    ffmpeg_cmd="\${ffmpeg_cmd} -vf \"\$vf_string\""
+    
+    # Add audio options
+    if [ "\$keep_audio" = "false" ]; then
+        ffmpeg_cmd="\${ffmpeg_cmd} -an"
     fi
     
     # Add output options
@@ -380,6 +450,85 @@ create_montage() {
     fi
 }
 
+# Create stacked montage (clips stack on top of each other)
+create_stacked_montage() {
+    local workspace="\$1"
+    local script_name="\$2"
+    local target_resolution="\$3"
+    local overlay_text="\$4"
+    local font="\$5"
+    local font_size="\$6"
+    local add_outline="\$7"
+    local add_copyright="\$8"
+    local keep_audio="\$9"
+    
+    log_info "Creating stacked montage..."
+    
+    # Get all clip files
+    local clips=()
+    for clip_file in \${workspace}/clip_*.mp4; do
+        if [ -f "\$clip_file" ]; then
+            clips+=("\$clip_file")
+        fi
+    done
+    
+    local clip_count=\${#clips[@]}
+    log_info "Found \$clip_count clips for stacking"
+    
+    if [ \$clip_count -eq 0 ]; then
+        log_error "No clips available for stacking"
+        return 1
+    fi
+    
+    # Build complex filter for stacking
+    local filter_complex=""
+    local inputs=""
+    
+    for i in "\${!clips[@]}"; do
+        local clip="\${clips[\$i]}"
+        inputs="\${inputs} -i \"\$clip\""
+        
+        if [ \$i -eq 0 ]; then
+            filter_complex="[0:v]scale=\$target_resolution[base]"
+        else
+            filter_complex="\${filter_complex};[\$i:v]scale=\$target_resolution[clip\$i]"
+            filter_complex="\${filter_complex};[base][clip\$i]overlay=0:0:shortest=1[base]"
+        fi
+    done
+    
+    # Add text overlay if specified
+    if [ -n "\$overlay_text" ]; then
+        log_info "Adding text overlay: \$overlay_text"
+        filter_complex="\${filter_complex};[base]drawtext=text='\$overlay_text':fontfile=/System/Library/Fonts/\${font}.ttf:fontsize=\$font_size:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2[final]"
+    else
+        filter_complex="\${filter_complex};[base]null[final]"
+    fi
+    
+    # Build FFmpeg command
+    local ffmpeg_cmd="ffmpeg\${inputs} -filter_complex \"\$filter_complex\" -map \"[final]\""
+    
+    # Add audio from first clip if keeping audio
+    if [ "\$keep_audio" = "true" ]; then
+        ffmpeg_cmd="\${ffmpeg_cmd} -map 0:a"
+    fi
+    
+    ffmpeg_cmd="\${ffmpeg_cmd} -c:v libx264 -c:a aac -preset fast -crf 23 -y \"\${workspace}/\${script_name}_v01.mp4\""
+    
+    log_info "Creating stacked montage..."
+    log_info "Target resolution: \$target_resolution"
+    
+    # Execute FFmpeg command
+    eval \$ffmpeg_cmd
+    
+    if [ \$? -eq 0 ]; then
+        log_success "Stacked montage created: \${workspace}/\${script_name}_v01.mp4"
+        return 0
+    else
+        log_error "Failed to create stacked montage"
+        return 1
+    fi
+}
+
 # Main execution
 main() {
     # Check dependencies
@@ -391,7 +540,7 @@ main() {
     
     # Configuration
     local script_name="${scriptName}"
-    local interval=${interval}
+    local interval=${clipInterval}
     local montage_length=${montageLength}
     local start_cut=${startCutAt}
     local end_cut=${endCutAt}
@@ -403,6 +552,8 @@ main() {
     local add_outline="${addTextOutline}"
     local keep_audio="${keepAudio}"
     local linear_mode="${linearMode}"
+    local layout_type="${layoutType}"
+    local add_copyright="${addCopyright}"
     
     # Video URLs
     local video_urls=(${videoUrls.map(url => `"${url}"`).join(' ')})
@@ -425,31 +576,24 @@ main() {
         local duration=\$(duration_to_seconds "\$duration_str")
         log_info "Video duration: \${duration}s"
         
-        # Calculate clip duration based on interval
-        local clip_duration=\$interval
+        # Calculate how many clips we need
+        local clips_needed=\$((montage_length / interval))
         
         # Generate clips for each variation
         for v in \$(seq 1 \$variations); do
             log_info "Downloading clips for variation \$v..."
             
-            # Calculate how many clips we need
-            local clips_needed=\$((montage_length / interval))
+            # Generate clip positions
+            local positions=(\$(generate_clip_positions "\$duration" "\$interval" "\$clips_needed" "\$start_cut" "\$end_cut" "\$linear_mode"))
             
             for clip_num in \$(seq 1 \$clips_needed); do
                 local output_file="clip_v\${v}_\$(printf "%02d" \$clip_num).mp4"
-                
-                # Generate random position within bounds
-                local max_start=\$((duration - clip_duration))
-                if [ \$max_start -lt 0 ]; then
-                    max_start=0
-                fi
-                
-                local start_pos=\$((RANDOM % (max_start + 1)))
+                local start_pos=\${positions[\$((clip_num - 1))]}
                 
                 log_info "Downloading clip \$clip_num for variation \$v at position \${start_pos}s"
                 
                 # Download the clip
-                if download_clip "\$url" "\$start_pos" "\$clip_duration" "\$output_file"; then
+                if download_clip "\$url" "\$start_pos" "\$interval" "\$output_file"; then
                     local file_size=\$(stat -f%z "\$output_file" 2>/dev/null || stat -c%s "\$output_file" 2>/dev/null)
                     log_success "Clip \$clip_num for variation \$v ready (\${file_size} bytes)"
                 else
@@ -472,7 +616,7 @@ main() {
     fi
     
     # Create the montage
-    if create_montage "\$workspace" "\$script_name" "\$target_resolution" "\$overlay_text" "\$font" "\$font_size" "\$add_outline"; then
+    if create_montage "\$workspace" "\$script_name" "\$target_resolution" "\$overlay_text" "\$font" "\$font_size" "\$add_outline" "\$layout_type" "\$add_copyright" "\$keep_audio"; then
         log_success "Duration: \${montage_length}s, Interval: \${interval}s, Clips: \$available_clips"
         log_success "Variation 1 completed successfully"
     else
@@ -481,7 +625,7 @@ main() {
     fi
     
     # Copy final file to downloads
-    local downloads_dir="\${HOME}/Downloads/\${script_name}"
+    local downloads_dir="\${HOME}/Downloads/\${outputFolder}"
     mkdir -p "\$downloads_dir"
     cp "\${script_name}_v01.mp4" "\$downloads_dir/"
     
@@ -661,8 +805,8 @@ main "\$@"
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-gray-700 border-gray-600">
-                    <SelectItem value="fixed">Fixed Interval</SelectItem>
-                    <SelectItem value="random">Random</SelectItem>
+                    <SelectItem value="fixed">Fixed Interval (seconds)</SelectItem>
+                    <SelectItem value="bpm">BPM Interval (beats)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -673,29 +817,62 @@ main "\$@"
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-gray-700 border-gray-600">
-                    <SelectItem value="cut">Cut (Sequential)</SelectItem>
-                    <SelectItem value="split">Split Screen</SelectItem>
+                    <SelectItem value="cut">Sequential (Easy Cuts)</SelectItem>
+                    <SelectItem value="stacked">Stacked Cuts</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label className="text-gray-300">Interval (seconds)</Label>
-                <Input
-                  type="number"
-                  value={interval}
-                  onChange={(e) => setInterval(e.target.value)}
-                  className="bg-gray-700 border-gray-600 text-white"
-                />
-              </div>
+              {montageType === "fixed" ? (
+                <div>
+                  <Label className="text-gray-300">Interval (seconds)</Label>
+                  <Input
+                    type="number"
+                    value={interval}
+                    onChange={(e) => setInterval(e.target.value)}
+                    className="bg-gray-700 border-gray-600 text-white"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <Label className="text-gray-300">BPM (beats per minute)</Label>
+                  <Input
+                    type="number"
+                    value={bpm}
+                    onChange={(e) => setBpm(e.target.value)}
+                    className="bg-gray-700 border-gray-600 text-white"
+                  />
+                </div>
+              )}
               <div>
                 <Label className="text-gray-300">Montage Length (seconds)</Label>
                 <Input
                   type="number"
                   value={montageLength}
                   onChange={(e) => setMontageLength(e.target.value)}
+                  className="bg-gray-700 border-gray-600 text-white"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-gray-300">Start Cut At (seconds)</Label>
+                <Input
+                  type="number"
+                  value={startCutAt}
+                  onChange={(e) => setStartCutAt(e.target.value)}
+                  className="bg-gray-700 border-gray-600 text-white"
+                />
+              </div>
+              <div>
+                <Label className="text-gray-300">End Cut At (seconds)</Label>
+                <Input
+                  type="number"
+                  value={endCutAt}
+                  onChange={(e) => setEndCutAt(e.target.value)}
                   className="bg-gray-700 border-gray-600 text-white"
                 />
               </div>
@@ -951,13 +1128,79 @@ main "\$@"
             <CardTitle className="text-white">Preview</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center">
-              <div className="text-gray-400 mb-4">
-                <div className="text-lg font-semibold">Montage Clips (1s intervals)</div>
-                <div className="text-sm">Sequential Layout (1280x720)</div>
+            <div className="space-y-4">
+              {/* Video Preview */}
+              <div className="border-2 border-dashed border-gray-600 rounded-lg p-4">
+                <div className="aspect-video bg-gray-700 rounded relative overflow-hidden">
+                  {/* Copyright line if enabled */}
+                  {addCopyright && (
+                    <div className="absolute top-0 left-0 right-0 h-1/4 bg-black bg-opacity-80"></div>
+                  )}
+                  
+                  {/* Text overlay if specified */}
+                  {overlayText && (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div 
+                        className="text-white text-center"
+                        style={{
+                          fontSize: `${fontSize[0]}px`,
+                          fontFamily: font,
+                          textShadow: addTextOutline ? '2px 2px 4px rgba(0,0,0,0.8)' : 'none'
+                        }}
+                      >
+                        {overlayText}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Video placeholder */}
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-gray-400 text-center">
+                      <div className="text-sm mb-2">Video Preview</div>
+                      <div className="text-xs">
+                        {videoLinks[0] ? 'Video loaded' : 'Add video URL'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="text-gray-500 text-sm">
-                Preview will show here when video URLs are added
+
+              {/* Settings Summary */}
+              <div className="space-y-2">
+                <div className="text-sm text-gray-300 font-medium">Settings Summary:</div>
+                <div className="text-xs text-gray-400 space-y-1">
+                  <div>• Type: {montageType === 'fixed' ? `Fixed (${interval}s)` : `BPM (${bpm})`}</div>
+                  <div>• Layout: {layoutType === 'cut' ? 'Sequential Cuts' : 'Stacked Cuts'}</div>
+                  <div>• Length: {montageLength}s</div>
+                  <div>• Resolution: {resolution}</div>
+                  <div>• Variations: {variations}</div>
+                  <div>• Audio: {keepAudio ? 'Keep' : 'Mute'}</div>
+                  <div>• Linear: {linearMode ? 'Sequential' : 'Random'}</div>
+                  {addCopyright && <div>• Copyright line: Enabled</div>}
+                  {overlayText && <div>• Text: "{overlayText}" ({fontSize[0]}px {font})</div>}
+                </div>
+              </div>
+
+              {/* Layout Preview */}
+              <div className="space-y-2">
+                <div className="text-sm text-gray-300 font-medium">Layout Preview:</div>
+                <div className="text-xs text-gray-400">
+                  {layoutType === 'cut' ? (
+                    <div className="space-y-1">
+                      <div>┌─────────┐ ┌─────────┐ ┌─────────┐</div>
+                      <div>│ Clip 1  │ │ Clip 2  │ │ Clip 3  │ → Sequential</div>
+                      <div>└─────────┘ └─────────┘ └─────────┘</div>
+                    </div>
+                  ) : (
+                    <div className="space-y-1">
+                      <div>┌─────────┐</div>
+                      <div>│ Clip 1  │</div>
+                      <div>│ Clip 2  │ → Stacked</div>
+                      <div>│ Clip 3  │</div>
+                      <div>└─────────┘</div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </CardContent>
