@@ -77,10 +77,393 @@ export function MontageGenerator() {
       return
     }
 
-    toast({
-      title: "Local Script Generated",
-      description: "Script has been created for local execution",
-    })
+    try {
+      // Create the script content based on the form parameters
+      const scriptContent = generateMontageScript({
+        videoUrls: videoLinks.filter(link => link.trim() !== ""),
+        montageType,
+        layoutType,
+        interval: Number.parseFloat(interval),
+        montageLength: Number.parseInt(montageLength),
+        startCutAt: Number.parseFloat(startCutAt),
+        endCutAt: Number.parseFloat(endCutAt),
+        resolution,
+        variations: Number.parseInt(variations),
+        folderName,
+        customFilename,
+        keepAudio,
+        linearMode,
+        addCopyright,
+        overlayText,
+        font,
+        fontSize: fontSize[0],
+        addTextOutline,
+      })
+
+      // Create and download the script file
+      const blob = new Blob([scriptContent], { type: 'text/plain' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${customFilename || 'montage'}_script.sh`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      toast({
+        title: "Script Generated!",
+        description: `Montage script downloaded as ${customFilename || 'montage'}_script.sh`,
+      })
+    } catch (error) {
+      console.error("Error generating script:", error)
+      toast({
+        title: "Error",
+        description: "Failed to generate script",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Generate the actual montage script
+  const generateMontageScript = (params: any) => {
+    const {
+      videoUrls,
+      montageType,
+      layoutType,
+      interval,
+      montageLength,
+      startCutAt,
+      endCutAt,
+      resolution,
+      variations,
+      folderName,
+      customFilename,
+      keepAudio,
+      linearMode,
+      addCopyright,
+      overlayText,
+      font,
+      fontSize,
+      addTextOutline,
+    } = params
+
+    const scriptName = customFilename || 'montage'
+    const outputFolder = folderName || 'montages'
+    
+    // Calculate resolution dimensions
+    const resolutionMap: { [key: string]: string } = {
+      '480p': '854x480',
+      '720p': '1280x720', 
+      '1080p': '1920x1080'
+    }
+    const targetResolution = resolutionMap[resolution] || '1280x720'
+
+    let script = `#!/bin/bash
+
+# =========================================
+#         Montage Generator Script        
+# =========================================
+
+# Colors for output
+RED='\\033[0;31m'
+GREEN='\\033[0;32m'
+YELLOW='\\033[1;33m'
+BLUE='\\033[0;34m'
+NC='\\033[0m' # No Color
+
+# Logging functions
+log_info() {
+    echo -e "\${BLUE}[INFO]\${NC} \$1"
+}
+
+log_success() {
+    echo -e "\${GREEN}[SUCCESS]\${NC} \$1"
+}
+
+log_error() {
+    echo -e "\${RED}[ERROR]\${NC} \$1"
+}
+
+log_warning() {
+    echo -e "\${YELLOW}[WARNING]\${NC} \$1"
+}
+
+# Check dependencies
+check_dependencies() {
+    log_info "Checking dependencies..."
+    
+    if ! command -v ffmpeg &> /dev/null; then
+        log_error "FFmpeg is not installed. Please install FFmpeg first."
+        exit 1
+    fi
+    
+    if ! command -v yt-dlp &> /dev/null; then
+        log_error "yt-dlp is not installed. Please install yt-dlp first."
+        exit 1
+    fi
+    
+    log_success "All dependencies are available"
+}
+
+# Create workspace
+create_workspace() {
+    local workspace=\$(mktemp -d)
+    log_info "Created workspace: \$workspace"
+    echo \$workspace
+}
+
+# Download YouTube video and get duration
+get_video_duration() {
+    local url="\$1"
+    local duration=\$(yt-dlp --get-duration "\$url" 2>/dev/null)
+    if [ -z "\$duration" ]; then
+        log_error "Failed to get duration for \$url"
+        return 1
+    fi
+    echo \$duration
+}
+
+# Convert duration to seconds
+duration_to_seconds() {
+    local duration="\$1"
+    local seconds=0
+    
+    # Parse HH:MM:SS format
+    if [[ \$duration =~ ^([0-9]+):([0-9]+):([0-9]+)$ ]]; then
+        local hours=\${BASH_REMATCH[1]}
+        local minutes=\${BASH_REMATCH[2]}
+        local secs=\${BASH_REMATCH[3]}
+        seconds=\$((hours * 3600 + minutes * 60 + secs))
+    # Parse MM:SS format
+    elif [[ \$duration =~ ^([0-9]+):([0-9]+)$ ]]; then
+        local minutes=\${BASH_REMATCH[1]}
+        local secs=\${BASH_REMATCH[2]}
+        seconds=\$((minutes * 60 + secs))
+    else
+        seconds=\$duration
+    fi
+    
+    echo \$seconds
+}
+
+# Download specific clip from YouTube
+download_clip() {
+    local url="\$1"
+    local start_time="\$2"
+    local duration="\$3"
+    local output_file="\$4"
+    
+    log_info "Downloading clip at position \${start_time}s"
+    
+    yt-dlp -f "best[height<=720]" --external-downloader ffmpeg --external-downloader-args "ffmpeg_i:-ss \${start_time} -t \${duration}" -o "\${output_file}" "\${url}" >/dev/null 2>&1
+    
+    if [ \$? -eq 0 ]; then
+        log_success "Downloaded YouTube clip"
+        return 0
+    else
+        log_error "Failed to download clip"
+        return 1
+    fi
+}
+
+# Generate random position within video bounds
+get_random_position() {
+    local max_duration="\$1"
+    local clip_duration="\$2"
+    local max_start=\$((max_duration - clip_duration))
+    
+    if [ \$max_start -le 0 ]; then
+        max_start=0
+    fi
+    
+    echo \$((RANDOM % (max_start + 1)))
+}
+
+# Create montage
+create_montage() {
+    local workspace="\$1"
+    local script_name="\$2"
+    local target_resolution="\$3"
+    local overlay_text="\$4"
+    local font="\$5"
+    local font_size="\$6"
+    local add_outline="\$7"
+    
+    log_info "Creating montage..."
+    
+    # Create clip list for FFmpeg
+    local clip_list="\${workspace}/clip_list.txt"
+    rm -f "\$clip_list"
+    
+    log_info "Creating clip list..."
+    
+    # Find all clip files and add them to the list
+    local clip_count=0
+    for clip_file in \${workspace}/clip_*.mp4; do
+        if [ -f "\$clip_file" ]; then
+            echo "file '\$clip_file'" >> "\$clip_list"
+            log_info "✓ Including clip: \$(basename \$clip_file)"
+            ((clip_count++))
+        fi
+    done
+    
+    log_info "Added \$clip_count clips to the list"
+    
+    # Prepare FFmpeg command
+    local ffmpeg_cmd="ffmpeg -f concat -safe 0 -i \"\$clip_list\""
+    
+    # Add text overlay if specified
+    if [ -n "\$overlay_text" ]; then
+        log_info "Adding text overlay: \$overlay_text"
+        
+        local text_filter="drawtext=text='\$overlay_text':fontfile=/System/Library/Fonts/\${font}.ttf:fontsize=\$font_size:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2"
+        
+        if [ "\$add_outline" = "true" ]; then
+            text_filter="\${text_filter}:shadowcolor=black:shadowx=2:shadowy=2"
+        fi
+        
+        ffmpeg_cmd="\${ffmpeg_cmd} -vf \"scale=\$target_resolution,\$text_filter\""
+    else
+        ffmpeg_cmd="\${ffmpeg_cmd} -vf \"scale=\$target_resolution\""
+    fi
+    
+    # Add output options
+    ffmpeg_cmd="\${ffmpeg_cmd} -c:v libx264 -c:a aac -preset fast -crf 23 -y \"\${workspace}/\${script_name}_v01.mp4\""
+    
+    log_info "Creating montage variation 1..."
+    log_info "Target resolution: \$target_resolution"
+    
+    # Execute FFmpeg command
+    eval \$ffmpeg_cmd
+    
+    if [ \$? -eq 0 ]; then
+        log_success "Montage created: \${workspace}/\${script_name}_v01.mp4"
+        return 0
+    else
+        log_error "Failed to create montage"
+        return 1
+    fi
+}
+
+# Main execution
+main() {
+    # Check dependencies
+    check_dependencies
+    
+    # Create workspace
+    local workspace=\$(create_workspace)
+    cd "\$workspace"
+    
+    # Configuration
+    local script_name="${scriptName}"
+    local interval=${interval}
+    local montage_length=${montageLength}
+    local start_cut=${startCutAt}
+    local end_cut=${endCutAt}
+    local variations=${variations}
+    local target_resolution="${targetResolution}"
+    local overlay_text="${overlayText}"
+    local font="${font}"
+    local font_size=${fontSize}
+    local add_outline="${addTextOutline}"
+    local keep_audio="${keepAudio}"
+    local linear_mode="${linearMode}"
+    
+    # Video URLs
+    local video_urls=(${videoUrls.map(url => `"${url}"`).join(' ')})
+    
+    log_info "Downloading specific clips directly..."
+    
+    # Process each video source
+    for i in "\${!video_urls[@]}"; do
+        local url="\${video_urls[\$i]}"
+        local source_num=\$((i + 1))
+        
+        log_info "Processing source \$source_num: \$url"
+        
+        # Get video duration
+        local duration_str=\$(get_video_duration "\$url")
+        if [ \$? -ne 0 ]; then
+            continue
+        fi
+        
+        local duration=\$(duration_to_seconds "\$duration_str")
+        log_info "Video duration: \${duration}s"
+        
+        # Calculate clip duration based on interval
+        local clip_duration=\$interval
+        
+        # Generate clips for each variation
+        for v in \$(seq 1 \$variations); do
+            log_info "Downloading clips for variation \$v..."
+            
+            # Calculate how many clips we need
+            local clips_needed=\$((montage_length / interval))
+            
+            for clip_num in \$(seq 1 \$clips_needed); do
+                local output_file="clip_v\${v}_\$(printf "%02d" \$clip_num).mp4"
+                
+                # Generate random position within bounds
+                local max_start=\$((duration - clip_duration))
+                if [ \$max_start -lt 0 ]; then
+                    max_start=0
+                fi
+                
+                local start_pos=\$((RANDOM % (max_start + 1)))
+                
+                log_info "Downloading clip \$clip_num for variation \$v at position \${start_pos}s"
+                
+                # Download the clip
+                if download_clip "\$url" "\$start_pos" "\$clip_duration" "\$output_file"; then
+                    local file_size=\$(stat -f%z "\$output_file" 2>/dev/null || stat -c%s "\$output_file" 2>/dev/null)
+                    log_success "Clip \$clip_num for variation \$v ready (\${file_size} bytes)"
+                else
+                    log_error "Failed to download clip \$clip_num for variation \$v"
+                fi
+            done
+        done
+    done
+    
+    # Create montage
+    log_info "🎬 Creating variation 1 of \$variations..."
+    
+    # Check available clips
+    local available_clips=\$(ls clip_*.mp4 2>/dev/null | wc -l)
+    log_info "Found \$available_clips clips for variation 1"
+    
+    if [ \$available_clips -eq 0 ]; then
+        log_error "No clips available for montage creation"
+        exit 1
+    fi
+    
+    # Create the montage
+    if create_montage "\$workspace" "\$script_name" "\$target_resolution" "\$overlay_text" "\$font" "\$font_size" "\$add_outline"; then
+        log_success "Duration: \${montage_length}s, Interval: \${interval}s, Clips: \$available_clips"
+        log_success "Variation 1 completed successfully"
+    else
+        log_error "Failed to create montage"
+        exit 1
+    fi
+    
+    # Copy final file to downloads
+    local downloads_dir="\${HOME}/Downloads/\${script_name}"
+    mkdir -p "\$downloads_dir"
+    cp "\${script_name}_v01.mp4" "\$downloads_dir/"
+    
+    log_success "Montage generation complete!"
+    log_success "Files saved to: \$downloads_dir"
+    
+    # Cleanup
+    cd /
+    rm -rf "\$workspace"
+}
+
+# Run main function
+main "\$@"
+`
+
+    return script
   }
 
   // Generate montage on the server
