@@ -43,6 +43,8 @@ export function MontageGenerator() {
   const [jobProgress, setJobProgress] = useState<number>(0)
   const [jobError, setJobError] = useState<string>("")
   const [downloadUrl, setDownloadUrl] = useState<string>("")
+  const [scriptGenerated, setScriptGenerated] = useState<boolean>(false)
+  const [scriptFilename, setScriptFilename] = useState<string>("")
 
   // Add video link field
   const addVideoLink = () => {
@@ -101,25 +103,57 @@ export function MontageGenerator() {
       })
 
       // Create and download the script file
+      const scriptFilename = `${customFilename || 'montage'}_script.sh`
       const blob = new Blob([scriptContent], { type: 'text/plain' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `${customFilename || 'montage'}_script.sh`
+      a.download = scriptFilename
       document.body.appendChild(a)
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
 
+      // Set script generated state
+      setScriptGenerated(true)
+      setScriptFilename(scriptFilename)
+
       toast({
         title: "Script Generated!",
-        description: `Montage script downloaded as ${customFilename || 'montage'}_script.sh`,
+        description: `Montage script downloaded as ${scriptFilename}`,
       })
     } catch (error) {
       console.error("Error generating script:", error)
       toast({
         title: "Error",
         description: "Failed to generate script",
+        variant: "destructive",
+      })
+    }
+  }
+
+  // Copy run commands to clipboard
+  const copyRunCommand = async (platform: 'mac' | 'pc') => {
+    const filename = scriptFilename.replace('.sh', '')
+    let command = ''
+    
+    if (platform === 'mac') {
+      command = `chmod +x ~/Downloads/${scriptFilename} && ~/Downloads/${scriptFilename}`
+    } else {
+      command = `bash ~/Downloads/${scriptFilename}`
+    }
+    
+    try {
+      await navigator.clipboard.writeText(command)
+      toast({
+        title: `${platform === 'mac' ? 'Mac' : 'PC'} Command Copied!`,
+        description: `Paste the command in your terminal and press Enter`,
+      })
+    } catch (error) {
+      console.error('Failed to copy command:', error)
+      toast({
+        title: "Copy Failed",
+        description: "Please copy the command manually",
         variant: "destructive",
       })
     }
@@ -822,6 +856,49 @@ main "\$@"
             Generate Montage (Cloud)
           </Button>
         </div>
+
+        {/* Copy Run Commands - Shows after script generation */}
+        {scriptGenerated && (
+          <Card className="bg-gray-800 border-gray-700">
+            <CardHeader>
+              <CardTitle className="text-white">Run Script Commands</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-gray-300">
+                Script downloaded as <code className="bg-gray-700 px-2 py-1 rounded">{scriptFilename}</code>
+              </p>
+              <p className="text-sm text-gray-400">
+                Copy the command below for your platform, paste in terminal, and press Enter:
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Button
+                  onClick={() => copyRunCommand('mac')}
+                  variant="outline"
+                  className="border-gray-600 text-gray-300 hover:text-white"
+                >
+                  <svg className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                  </svg>
+                  Copy Mac Command
+                </Button>
+                <Button
+                  onClick={() => copyRunCommand('pc')}
+                  variant="outline"
+                  className="border-gray-600 text-gray-300 hover:text-white"
+                >
+                  <svg className="h-4 w-4 mr-2" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-1 9H9V9h10v2zm-4 4H9v-2h6v2zm4-8H9V5h10v2z"/>
+                  </svg>
+                  Copy PC Command
+                </Button>
+              </div>
+              <div className="text-xs text-gray-500 mt-2">
+                <p>• Mac: Makes script executable and runs it</p>
+                <p>• PC: Runs script with bash (requires WSL/Git Bash)</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Progress and Status */}
         {isGenerating && (
