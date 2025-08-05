@@ -120,94 +120,35 @@ export function MontageGenerator() {
       console.log("Response data:", data)
 
       if (!response.ok) {
-        throw new Error(data.error || "Failed to start montage generation")
+        throw new Error(data.error || "Failed to generate montage")
       }
 
-      setJobId(data.jobId)
-      console.log("Job ID set:", data.jobId)
+      setIsGenerating(false)
+      setJobStatus("completed")
+      setDownloadUrl(data.downloadUrl)
+      toast({
+        title: "Success",
+        description: "Your montage is ready to download!",
+      })
 
-      // Poll for job status
-      const statusInterval = setInterval(async () => {
-        try {
-          console.log("Polling job status for:", data.jobId)
-          const statusResponse = await fetch(`/api/job-status?jobId=${data.jobId}`)
-
-          // Check if the status response is JSON
-          const statusContentType = statusResponse.headers.get("content-type")
-          if (!statusContentType || !statusContentType.includes("application/json")) {
-            const text = await statusResponse.text()
-            console.error("Non-JSON status response:", text.substring(0, 500))
-            throw new Error(`Server returned non-JSON status response (${statusResponse.status})`)
-          }
-
-          const statusData = await statusResponse.json()
-          console.log("Job status update:", statusData)
-
-          if (!statusResponse.ok) {
-            throw new Error(statusData.error || "Failed to get job status")
-          }
-
-          setJobStatus(statusData.status)
-          setJobProgress(statusData.progress || 0)
-
-          if (statusData.error) {
-            setJobError(statusData.error)
-            clearInterval(statusInterval)
-            setIsGenerating(false)
-          }
-
-          if (statusData.downloadUrl) {
-            setDownloadUrl(statusData.downloadUrl)
-          }
-
-          if (statusData.status === "completed" || statusData.status === "failed") {
-            clearInterval(statusInterval)
-            setIsGenerating(statusData.status !== "failed")
-
-            if (statusData.status === "completed") {
-              toast({
-                title: "Success",
-                description: "Your montage is ready to download!",
-              })
-
-              // Trigger download if available
-              if (statusData.downloadUrl) {
-                const a = document.createElement("a")
-                a.href = statusData.downloadUrl
-                a.download = customFilename || "montage.mp4"
-                document.body.appendChild(a)
-                a.click()
-                document.body.removeChild(a)
-              }
-            } else if (statusData.status === "failed") {
-              toast({
-                title: "Error",
-                description: statusData.error || "Failed to generate montage",
-                variant: "destructive",
-              })
-            }
-          }
-        } catch (error) {
-          console.error("Error polling job status:", error)
-          clearInterval(statusInterval)
-          setIsGenerating(false)
-          setJobStatus("failed")
-          setJobError(error.message || "Failed to check job status")
-          toast({
-            title: "Error",
-            description: error.message || "Failed to check job status",
-            variant: "destructive",
-          })
-        }
-      }, 2000)
+      // Trigger download
+      if (data.downloadUrl) {
+        const a = document.createElement("a")
+        a.href = data.downloadUrl
+        a.download = customFilename || "montage.mp4"
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      }
     } catch (error) {
-      console.error("Error starting montage generation:", error)
+      console.error("Error generating montage:", error)
       setIsGenerating(false)
       setJobStatus("failed")
-      setJobError(error.message || "Failed to start montage generation")
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      setJobError(errorMessage || "Failed to generate montage")
       toast({
         title: "Error",
-        description: error.message || "Failed to start montage generation",
+        description: errorMessage || "Failed to generate montage",
         variant: "destructive",
       })
     }
