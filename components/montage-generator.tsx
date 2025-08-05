@@ -6,11 +6,12 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Card, CardContent } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { AlertCircle, Download, Loader2, Plus, Trash2 } from "lucide-react"
+import { AlertCircle, Download, Loader2, Plus, Trash2, Cloud, FolderOpen } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useToast } from "@/hooks/use-toast"
+import { Slider } from "@/components/ui/slider"
 
 export function MontageGenerator() {
   const { toast } = useToast()
@@ -19,17 +20,21 @@ export function MontageGenerator() {
   const [videoLinks, setVideoLinks] = useState<string[]>([""])
   const [montageType, setMontageType] = useState<string>("fixed")
   const [layoutType, setLayoutType] = useState<string>("cut")
-  const [useRandomPositions, setUseRandomPositions] = useState<boolean>(false)
   const [interval, setInterval] = useState<string>("1")
-  const [bpm, setBpm] = useState<string>("120")
   const [montageLength, setMontageLength] = useState<string>("30")
-  const [keepAudio, setKeepAudio] = useState<boolean>(true)
-  const [resolution, setResolution] = useState<string>("720p")
-  const [linearMode, setLinearMode] = useState<boolean>(true)
-  const [customFilename, setCustomFilename] = useState<string>("montage.mp4")
   const [startCutAt, setStartCutAt] = useState<string>("0")
   const [endCutAt, setEndCutAt] = useState<string>("60")
+  const [resolution, setResolution] = useState<string>("720p")
   const [variations, setVariations] = useState<string>("1")
+  const [folderName, setFolderName] = useState<string>("montages")
+  const [customFilename, setCustomFilename] = useState<string>("montage")
+  const [keepAudio, setKeepAudio] = useState<boolean>(true)
+  const [linearMode, setLinearMode] = useState<boolean>(true)
+  const [addCopyright, setAddCopyright] = useState<boolean>(false)
+  const [overlayText, setOverlayText] = useState<string>("")
+  const [font, setFont] = useState<string>("Arial")
+  const [fontSize, setFontSize] = useState<number[]>([48])
+  const [addTextOutline, setAddTextOutline] = useState<boolean>(false)
 
   // Job state
   const [isGenerating, setIsGenerating] = useState<boolean>(false)
@@ -61,6 +66,23 @@ export function MontageGenerator() {
     setVideoLinks(newLinks)
   }
 
+  // Generate local script
+  const generateLocalScript = async () => {
+    if (videoLinks[0].trim() === "") {
+      toast({
+        title: "Error",
+        description: "Please enter at least one video URL",
+        variant: "destructive",
+      })
+      return
+    }
+
+    toast({
+      title: "Local Script Generated",
+      description: "Script has been created for local execution",
+    })
+  }
+
   // Generate montage on the server
   const generateMontage = async () => {
     if (videoLinks[0].trim() === "") {
@@ -88,309 +110,399 @@ export function MontageGenerator() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          videoUrls: videoLinks,
+          videoUrls: videoLinks.filter(link => link.trim() !== ""),
           montageType,
           layoutType,
-          useRandomPositions,
           interval: Number.parseFloat(interval),
-          bpm: Number.parseInt(bpm),
           montageLength: Number.parseInt(montageLength),
-          keepAudio,
+          startCutAt: Number.parseFloat(startCutAt),
+          endCutAt: Number.parseFloat(endCutAt),
           resolution,
-          linearMode,
-          customFilename,
-          startCutAt: Number.parseInt(startCutAt),
-          endCutAt: Number.parseInt(endCutAt),
           variations: Number.parseInt(variations),
+          folderName,
+          customFilename,
+          keepAudio,
+          linearMode,
+          addCopyright,
+          overlayText,
+          font,
+          fontSize: fontSize[0],
+          addTextOutline,
         }),
       })
 
-      console.log("Response status:", response.status)
-
-      // Check if the response is JSON
-      const contentType = response.headers.get("content-type")
-      if (!contentType || !contentType.includes("application/json")) {
-        // Handle non-JSON response
-        const text = await response.text()
-        console.error("Non-JSON response:", text.substring(0, 500))
-        throw new Error(`Server returned non-JSON response (${response.status}).`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
       }
 
       const data = await response.json()
-      console.log("Response data:", data)
+      console.log("Response:", data)
 
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to generate montage")
-      }
-
-      setIsGenerating(false)
-      setJobStatus("completed")
-      setDownloadUrl(data.downloadUrl)
-      toast({
-        title: "Success",
-        description: "Your montage is ready to download!",
-      })
-
-      // Trigger download
-      if (data.downloadUrl) {
-        const a = document.createElement("a")
-        a.href = data.downloadUrl
-        a.download = customFilename || "montage.mp4"
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
+      if (data.jobId) {
+        setJobId(data.jobId)
+        setJobStatus("processing")
+        // Start polling for job status
+        pollJobStatus(data.jobId)
+      } else {
+        throw new Error("No job ID received")
       }
     } catch (error) {
       console.error("Error generating montage:", error)
+      setJobError(error instanceof Error ? error.message : "Unknown error occurred")
       setIsGenerating(false)
-      setJobStatus("failed")
-      const errorMessage = error instanceof Error ? error.message : String(error)
-      setJobError(errorMessage || "Failed to generate montage")
-      toast({
-        title: "Error",
-        description: errorMessage || "Failed to generate montage",
-        variant: "destructive",
-      })
+      setJobStatus("error")
     }
   }
 
-  return (
-    <div className="space-y-8">
-      <Card>
-        <CardContent className="pt-6">
-          <div className="space-y-6">
-            {/* Video Sources */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium">Video Sources</h3>
+  // Poll job status
+  const pollJobStatus = async (jobId: string) => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/job-status?jobId=${jobId}`)
+        const data = await response.json()
 
-              {videoLinks.map((link, index) => (
-                <div key={index} className="flex items-center gap-2">
-                  <Input
-                    value={link}
-                    onChange={(e) => updateVideoLink(index, e.target.value)}
-                    placeholder="Enter YouTube or direct video URL"
-                    className="flex-1"
-                  />
+        if (data.status === "completed") {
+          setJobStatus("completed")
+          setJobProgress(100)
+          setDownloadUrl(data.downloadUrl)
+          setIsGenerating(false)
+          clearInterval(pollInterval)
+          
+          toast({
+            title: "Montage Generated!",
+            description: "Your montage is ready for download.",
+          })
+        } else if (data.status === "failed") {
+          setJobStatus("failed")
+          setJobError(data.error || "Generation failed")
+          setIsGenerating(false)
+          clearInterval(pollInterval)
+        } else if (data.status === "processing") {
+          setJobProgress(data.progress || 0)
+        }
+      } catch (error) {
+        console.error("Error polling job status:", error)
+        setJobError("Failed to check job status")
+        setIsGenerating(false)
+        clearInterval(pollInterval)
+      }
+    }, 2000)
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* Left Panel - Settings */}
+      <div className="space-y-6">
+        {/* Video Sources */}
+        <Card className="bg-gray-800 border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-white">Video Sources</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {videoLinks.map((link, index) => (
+              <div key={index} className="flex gap-2">
+                <Input
+                  placeholder="Enter YouTube, Dropbox, Google Drive, or direct video URL"
+                  value={link}
+                  onChange={(e) => updateVideoLink(index, e.target.value)}
+                  className="bg-gray-700 border-gray-600 text-white placeholder-gray-400"
+                />
+                {videoLinks.length > 1 && (
                   <Button
                     variant="outline"
                     size="icon"
                     onClick={() => removeVideoLink(index)}
-                    disabled={videoLinks.length === 1}
+                    className="border-gray-600 text-gray-400 hover:text-white"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
-                </div>
-              ))}
-
-              <Button variant="outline" onClick={addVideoLink} className="w-full">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Another Video
-              </Button>
-            </div>
-
-            {/* Montage Settings */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-medium">Montage Settings</h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="montageType">Montage Type</Label>
-                  <Select value={montageType} onValueChange={setMontageType}>
-                    <SelectTrigger id="montageType">
-                      <SelectValue placeholder="Select type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="fixed">Fixed Interval</SelectItem>
-                      <SelectItem value="bpm">BPM-based</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="layoutType">Layout Type</Label>
-                  <Select value={layoutType} onValueChange={setLayoutType}>
-                    <SelectTrigger id="layoutType">
-                      <SelectValue placeholder="Select layout" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cut">Cut (Sequential)</SelectItem>
-                      <SelectItem value="grid">Grid</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {montageType === "fixed" ? (
-                  <div className="space-y-2">
-                    <Label htmlFor="interval">Interval (seconds)</Label>
-                    <Input
-                      id="interval"
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      value={interval}
-                      onChange={(e) => setInterval(e.target.value)}
-                    />
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Label htmlFor="bpm">BPM</Label>
-                    <Input
-                      id="bpm"
-                      type="number"
-                      min="60"
-                      max="240"
-                      value={bpm}
-                      onChange={(e) => setBpm(e.target.value)}
-                    />
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <Label htmlFor="montageLength">Montage Length (seconds)</Label>
-                  <Input
-                    id="montageLength"
-                    type="number"
-                    min="1"
-                    max="300"
-                    value={montageLength}
-                    onChange={(e) => setMontageLength(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="startCutAt">Start Cut At (seconds)</Label>
-                  <Input
-                    id="startCutAt"
-                    type="number"
-                    min="0"
-                    value={startCutAt}
-                    onChange={(e) => setStartCutAt(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="endCutAt">End Cut At (seconds)</Label>
-                  <Input
-                    id="endCutAt"
-                    type="number"
-                    min="0"
-                    value={endCutAt}
-                    onChange={(e) => setEndCutAt(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="resolution">Resolution</Label>
-                  <Select value={resolution} onValueChange={setResolution}>
-                    <SelectTrigger id="resolution">
-                      <SelectValue placeholder="Select resolution" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="original">Original</SelectItem>
-                      <SelectItem value="1080p">1080p</SelectItem>
-                      <SelectItem value="720p">720p</SelectItem>
-                      <SelectItem value="480p">480p</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="variations">Number of Variations</Label>
-                  <Input
-                    id="variations"
-                    type="number"
-                    min="1"
-                    max="5"
-                    value={variations}
-                    onChange={(e) => setVariations(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="customFilename">Custom Filename</Label>
-                  <Input
-                    id="customFilename"
-                    value={customFilename}
-                    onChange={(e) => setCustomFilename(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Switch id="keepAudio" checked={keepAudio} onCheckedChange={setKeepAudio} />
-                  <Label htmlFor="keepAudio">Keep Audio</Label>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Switch id="linearMode" checked={linearMode} onCheckedChange={setLinearMode} />
-                  <Label htmlFor="linearMode">Linear Mode</Label>
-                </div>
-
-                {layoutType === "grid" && (
-                  <div className="flex items-center space-x-2">
-                    <Switch id="randomPositions" checked={useRandomPositions} onCheckedChange={setUseRandomPositions} />
-                    <Label htmlFor="randomPositions">Random Positions</Label>
-                  </div>
                 )}
               </div>
-            </div>
-
+            ))}
             <Button
-              onClick={generateMontage}
-              disabled={isGenerating || videoLinks[0].trim() === ""}
-              className="w-full bg-blue-600 text-white hover:bg-blue-700"
+              variant="outline"
+              onClick={addVideoLink}
+              className="w-full border-gray-600 text-gray-400 hover:text-white"
             >
-              {isGenerating ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Generating Montage...
-                </>
-              ) : (
-                "Generate Montage"
-              )}
+              <Plus className="h-4 w-4 mr-2" />
+              Add Another Video
             </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Job Status */}
-      {(jobId || jobError) && (
-        <Card>
-          <CardContent className="pt-6 space-y-4">
-            {jobId && (() => {
-              console.log("jobProgress type:", typeof jobProgress, jobProgress)
-              return (
-                <div>
-                  <h3 className="text-lg font-medium">Job Status: {jobStatus}</h3>
-                  <Progress value={jobProgress} className="mt-2" />
-                  <p className="text-sm text-gray-500 mt-1">Progress: {jobProgress}%</p>
-                </div>
-              )
-            })()}
-
-            {jobError && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertTitle>Error</AlertTitle>
-                <AlertDescription>{jobError}</AlertDescription>
-              </Alert>
-            )}
-
-            {downloadUrl && (
-              <div className="flex flex-col items-center space-y-2">
-                <p className="text-green-600 font-medium">Your montage is ready!</p>
-                <Button asChild>
-                  <a href={downloadUrl} download={customFilename || "montage.mp4"}>
-                    <Download className="mr-2 h-4 w-4" />
-                    Download Montage
-                  </a>
-                </Button>
-              </div>
-            )}
           </CardContent>
         </Card>
-      )}
+
+        {/* Montage Settings */}
+        <Card className="bg-gray-800 border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-white">Montage Settings</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-gray-300">Montage Type</Label>
+                <Select value={montageType} onValueChange={setMontageType}>
+                  <SelectTrigger className="bg-gray-700 border-gray-600 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-700 border-gray-600">
+                    <SelectItem value="fixed">Fixed Interval</SelectItem>
+                    <SelectItem value="random">Random</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-gray-300">Layout Type</Label>
+                <Select value={layoutType} onValueChange={setLayoutType}>
+                  <SelectTrigger className="bg-gray-700 border-gray-600 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-700 border-gray-600">
+                    <SelectItem value="cut">Cut (Sequential)</SelectItem>
+                    <SelectItem value="split">Split Screen</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-gray-300">Interval (seconds)</Label>
+                <Input
+                  type="number"
+                  value={interval}
+                  onChange={(e) => setInterval(e.target.value)}
+                  className="bg-gray-700 border-gray-600 text-white"
+                />
+              </div>
+              <div>
+                <Label className="text-gray-300">Montage Length (seconds)</Label>
+                <Input
+                  type="number"
+                  value={montageLength}
+                  onChange={(e) => setMontageLength(e.target.value)}
+                  className="bg-gray-700 border-gray-600 text-white"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-gray-300">Start Cut At (seconds)</Label>
+                <Input
+                  type="number"
+                  value={startCutAt}
+                  onChange={(e) => setStartCutAt(e.target.value)}
+                  className="bg-gray-700 border-gray-600 text-white"
+                />
+              </div>
+              <div>
+                <Label className="text-gray-300">End Cut At (seconds)</Label>
+                <Input
+                  type="number"
+                  value={endCutAt}
+                  onChange={(e) => setEndCutAt(e.target.value)}
+                  className="bg-gray-700 border-gray-600 text-white"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-gray-300">Resolution</Label>
+                <Select value={resolution} onValueChange={setResolution}>
+                  <SelectTrigger className="bg-gray-700 border-gray-600 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-700 border-gray-600">
+                    <SelectItem value="480p">480p</SelectItem>
+                    <SelectItem value="720p">720p</SelectItem>
+                    <SelectItem value="1080p">1080p</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-gray-300">Number of Variations</Label>
+                <Input
+                  type="number"
+                  value={variations}
+                  onChange={(e) => setVariations(e.target.value)}
+                  className="bg-gray-700 border-gray-600 text-white"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-gray-300">Folder Name (in Downloads)</Label>
+                <Input
+                  value={folderName}
+                  onChange={(e) => setFolderName(e.target.value)}
+                  className="bg-gray-700 border-gray-600 text-white"
+                />
+              </div>
+              <div>
+                <Label className="text-gray-300">Custom Filename</Label>
+                <Input
+                  value={customFilename}
+                  onChange={(e) => setCustomFilename(e.target.value)}
+                  className="bg-gray-700 border-gray-600 text-white"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Label className="text-gray-300">Keep Audio</Label>
+                <Switch checked={keepAudio} onCheckedChange={setKeepAudio} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="text-gray-300">Linear Mode</Label>
+                <Switch checked={linearMode} onCheckedChange={setLinearMode} />
+              </div>
+              <div className="flex items-center justify-between">
+                <Label className="text-gray-300">Add Copyright Line (Top 25%)</Label>
+                <Switch checked={addCopyright} onCheckedChange={setAddCopyright} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Text Overlay */}
+        <Card className="bg-gray-800 border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-white">Text Overlay</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label className="text-gray-300">Overlay Text</Label>
+              <Input
+                placeholder="Enter text to overlay on video"
+                value={overlayText}
+                onChange={(e) => setOverlayText(e.target.value)}
+                className="bg-gray-700 border-gray-600 text-white placeholder-gray-400"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-gray-300">Font</Label>
+                <Select value={font} onValueChange={setFont}>
+                  <SelectTrigger className="bg-gray-700 border-gray-600 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-700 border-gray-600">
+                    <SelectItem value="Arial">Arial</SelectItem>
+                    <SelectItem value="Helvetica">Helvetica</SelectItem>
+                    <SelectItem value="Times New Roman">Times New Roman</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-gray-300">Font Size: {fontSize[0]}px</Label>
+                <Slider
+                  value={fontSize}
+                  onValueChange={setFontSize}
+                  max={100}
+                  min={12}
+                  step={1}
+                  className="w-full"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <Label className="text-gray-300">Add Text Outline</Label>
+              <Switch checked={addTextOutline} onCheckedChange={setAddTextOutline} />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Generate Buttons */}
+        <div className="space-y-3">
+          <Button
+            onClick={generateLocalScript}
+            className="w-full bg-green-600 hover:bg-green-700 text-white"
+            disabled={isGenerating}
+          >
+            <FolderOpen className="h-4 w-4 mr-2" />
+            Generate Local Script
+          </Button>
+          <Button
+            onClick={generateMontage}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+            disabled={isGenerating}
+          >
+            {isGenerating ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Cloud className="h-4 w-4 mr-2" />
+            )}
+            Generate Montage (Cloud)
+          </Button>
+        </div>
+
+        {/* Progress and Status */}
+        {isGenerating && (
+          <Card className="bg-gray-800 border-gray-700">
+            <CardContent className="pt-6">
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-300">Progress</span>
+                  <span className="text-gray-300">{jobProgress}%</span>
+                </div>
+                <Progress value={jobProgress} className="w-full" />
+                <p className="text-sm text-gray-400">{jobStatus}</p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Error Display */}
+        {jobError && (
+          <Alert variant="destructive" className="bg-red-900 border-red-700">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{jobError}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Download Link */}
+        {downloadUrl && (
+          <Alert className="bg-green-900 border-green-700">
+            <Download className="h-4 w-4" />
+            <AlertTitle>Ready for Download</AlertTitle>
+            <AlertDescription>
+              <a
+                href={downloadUrl}
+                className="text-green-300 hover:text-green-200 underline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Click here to download your montage
+              </a>
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>
+
+      {/* Right Panel - Preview */}
+      <div>
+        <Card className="bg-gray-800 border-gray-700 h-full">
+          <CardHeader>
+            <CardTitle className="text-white">Preview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center">
+              <div className="text-gray-400 mb-4">
+                <div className="text-lg font-semibold">Montage Clips (1s intervals)</div>
+                <div className="text-sm">Sequential Layout (1280x720)</div>
+              </div>
+              <div className="text-gray-500 text-sm">
+                Preview will show here when video URLs are added
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }

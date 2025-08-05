@@ -9,6 +9,7 @@ import { Progress } from "@/components/ui/progress"
 import { AlertCircle, Download, Loader2, Youtube } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useToast } from "@/hooks/use-toast"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 
 // Simulate job storage for preview mode
 const previewJobs = new Map<
@@ -308,43 +309,39 @@ export function ReactionSplitGenerator() {
   }
 
   return (
-    <div className="space-y-8">
-      {isPreviewMode && (
-        <Alert>
-          <AlertTitle>Preview Mode</AlertTitle>
-          <AlertDescription>
-            Running in preview mode. API calls will be simulated and a sample video file will be provided for download.
-          </AlertDescription>
-        </Alert>
-      )}
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {/* Left Panel - Settings */}
+      <div className="space-y-6">
+        {isPreviewMode && (
+          <Alert className="bg-amber-900 border-amber-700">
+            <AlertTitle>Preview Mode</AlertTitle>
+            <AlertDescription>
+              Running in preview mode. API calls will be simulated and a sample video file will be provided for download.
+            </AlertDescription>
+          </Alert>
+        )}
 
-      <div className="border border-gray-300 p-6 rounded">
         {/* Video Sources */}
-        <div className="mb-6">
-          <h2 className="text-base font-normal mb-4">Video Sources</h2>
-          <p className="text-sm text-gray-600 mb-4">
-            Enter YouTube or Dropbox links for the top and bottom videos of your reaction split.
-          </p>
-
-          <div className="space-y-4">
+        <Card className="bg-gray-800 border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-white">Video Sources</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
             <div>
-              <Label htmlFor="top-video" className="text-sm font-normal">
-                Top Video (Reaction)
-              </Label>
+              <Label className="text-gray-300">Top Video (Reaction)</Label>
               <div className="flex items-center gap-2 mt-1">
                 <Input
-                  id="top-video"
                   value={topVideoLink}
                   onChange={(e) => setTopVideoLink(e.target.value)}
                   placeholder="https://www.youtube.com/watch?v=..."
-                  className="border-gray-400 bg-white text-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="bg-gray-700 border-gray-600 text-white placeholder-gray-400"
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
                   onClick={() => window.open("https://www.youtube.com", "_blank")}
-                  className="border-gray-400 text-red-500 hover:bg-red-50"
+                  className="border-gray-600 text-red-400 hover:text-red-300"
                 >
                   <Youtube className="h-4 w-4" />
                 </Button>
@@ -352,95 +349,86 @@ export function ReactionSplitGenerator() {
             </div>
 
             <div>
-              <Label htmlFor="bottom-video" className="text-sm font-normal">
-                Bottom Video (Content)
-              </Label>
+              <Label className="text-gray-300">Bottom Video (Content)</Label>
               <div className="flex items-center gap-2 mt-1">
                 <Input
-                  id="bottom-video"
                   value={bottomVideoLink}
                   onChange={(e) => setBottomVideoLink(e.target.value)}
                   placeholder="https://www.youtube.com/watch?v=..."
-                  className="border-gray-400 bg-white text-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="bg-gray-700 border-gray-600 text-white placeholder-gray-400"
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="icon"
                   onClick={() => window.open("https://www.youtube.com", "_blank")}
-                  className="border-gray-400 text-red-500 hover:bg-red-50"
+                  className="border-gray-600 text-red-400 hover:text-red-300"
                 >
                   <Youtube className="h-4 w-4" />
                 </Button>
               </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Timing Controls */}
-        <div className="mb-6">
-          <h2 className="text-base font-normal mb-4">Timing Controls</h2>
+        <Card className="bg-gray-800 border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-white">Timing Controls</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label className="text-gray-300">Top Video Start (seconds)</Label>
+                <Input
+                  type="number"
+                  value={topStartTime}
+                  onChange={(e) => setTopStartTime(e.target.value)}
+                  min="0"
+                  className="bg-gray-700 border-gray-600 text-white"
+                />
+              </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <Label htmlFor="top-start" className="text-sm font-normal">
-                Top Video Start (seconds)
-              </Label>
-              <Input
-                id="top-start"
-                type="number"
-                value={topStartTime}
-                onChange={(e) => setTopStartTime(e.target.value)}
-                min="0"
-                className="mt-1 border-gray-400 bg-white text-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
+              <div>
+                <Label className="text-gray-300">Bottom Video Start (seconds)</Label>
+                <Input
+                  type="number"
+                  value={bottomStartTime}
+                  onChange={(e) => setBottomStartTime(e.target.value)}
+                  min="0"
+                  className="bg-gray-700 border-gray-600 text-white"
+                />
+              </div>
 
-            <div>
-              <Label htmlFor="bottom-start" className="text-sm font-normal">
-                Bottom Video Start (seconds)
-              </Label>
-              <Input
-                id="bottom-start"
-                type="number"
-                value={bottomStartTime}
-                onChange={(e) => setBottomStartTime(e.target.value)}
-                min="0"
-                className="mt-1 border-gray-400 bg-white text-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
+              <div>
+                <Label className="text-gray-300">Duration (seconds)</Label>
+                <Input
+                  type="number"
+                  value={duration}
+                  onChange={(e) => setDuration(e.target.value)}
+                  min="1"
+                  max="600"
+                  className="bg-gray-700 border-gray-600 text-white"
+                />
+              </div>
             </div>
-
-            <div>
-              <Label htmlFor="duration" className="text-sm font-normal">
-                Duration (seconds)
-              </Label>
-              <Input
-                id="duration"
-                type="number"
-                value={duration}
-                onChange={(e) => setDuration(e.target.value)}
-                min="1"
-                max="600"
-                className="mt-1 border-gray-400 bg-white text-black focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
         {/* Volume Controls */}
-        <div className="mb-6">
-          <h2 className="text-base font-normal mb-4">Volume Controls</h2>
-
-          <div className="space-y-6">
+        <Card className="bg-gray-800 border-gray-700">
+          <CardHeader>
+            <CardTitle className="text-white">Volume Controls</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
             <div>
               <div className="flex justify-between mb-2">
-                <Label htmlFor="top-volume" className="text-sm font-normal">
+                <Label className="text-gray-300">
                   Top Video Volume: {topVolume}%
                 </Label>
-                <span className="text-xs text-gray-500">{topVolume === 0 ? "(Muted)" : ""}</span>
+                <span className="text-xs text-gray-400">{topVolume === 0 ? "(Muted)" : ""}</span>
               </div>
               <Slider
-                id="top-volume"
                 value={[topVolume]}
                 onValueChange={(value) => setTopVolume(value[0])}
                 min={0}
@@ -452,13 +440,12 @@ export function ReactionSplitGenerator() {
 
             <div>
               <div className="flex justify-between mb-2">
-                <Label htmlFor="bottom-volume" className="text-sm font-normal">
+                <Label className="text-gray-300">
                   Bottom Video Volume: {bottomVolume}%
                 </Label>
-                <span className="text-xs text-gray-500">{bottomVolume === 0 ? "(Muted)" : ""}</span>
+                <span className="text-xs text-gray-400">{bottomVolume === 0 ? "(Muted)" : ""}</span>
               </div>
               <Slider
-                id="bottom-volume"
                 value={[bottomVolume]}
                 onValueChange={(value) => setBottomVolume(value[0])}
                 min={0}
@@ -467,88 +454,101 @@ export function ReactionSplitGenerator() {
                 className="py-2"
               />
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
-        {/* Preview */}
-        <div className="mb-6">
-          <h2 className="text-base font-normal mb-4">Preview</h2>
-          <div className="bg-gray-100 rounded-md p-4 flex flex-col items-center justify-center">
-            <div className="w-full max-w-[180px] aspect-[9/16] bg-gray-200 rounded-md overflow-hidden">
-              <div className="w-full h-1/2 bg-gray-300 flex items-center justify-center text-gray-500 text-xs">
-                Top Video
-              </div>
-              <div className="w-full h-1/2 bg-gray-400 flex items-center justify-center text-gray-600 text-xs">
-                Bottom Video
-              </div>
-            </div>
-            <p className="text-xs text-gray-500 mt-2">9:16 Vertical Format (1080x1920)</p>
-          </div>
-        </div>
-
+        {/* Generate Button */}
         <Button
           onClick={generateVideo}
-          className="w-full bg-blue-600 text-white hover:bg-blue-700 rounded-sm"
+          className="w-full bg-blue-600 hover:bg-blue-700 text-white"
           disabled={!topVideoLink || !bottomVideoLink || isGenerating}
         >
           {isGenerating ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {isPreviewMode ? "Simulating Video Generation..." : "Generating Video..."}
-            </>
-          ) : isPreviewMode ? (
-            "Simulate Reaction Video"
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
           ) : (
-            "Generate Reaction Video"
+            <Youtube className="mr-2 h-4 w-4" />
           )}
+          {isGenerating 
+            ? (isPreviewMode ? "Simulating Video Generation..." : "Generating Video...")
+            : (isPreviewMode ? "Simulate Reaction Video" : "Generate Reaction Video")
+          }
         </Button>
-      </div>
 
-      {/* Job Status */}
-      {jobId && (
-        <div className="border border-gray-300 p-6 rounded">
-          <div className="mb-4">
-            <h2 className="text-base font-normal mb-2">Processing Status</h2>
-            <Progress value={jobProgress} className="h-2 w-full" />
-            <p className="text-sm text-gray-600 mt-2">
-              Status: {jobStatus === "completed" ? "Complete" : jobStatus === "failed" ? "Failed" : "Processing"} (
-              {jobProgress}%)
-            </p>
-            {isPreviewMode && (
-              <p className="text-xs text-amber-500 mt-1">
-                Note: This is a simulated process in preview mode. No actual video processing is occurring.
-              </p>
-            )}
-          </div>
+        {/* Progress and Status */}
+        {isGenerating && (
+          <Card className="bg-gray-800 border-gray-700">
+            <CardContent className="pt-6">
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-300">Progress</span>
+                  <span className="text-gray-300">{jobProgress}%</span>
+                </div>
+                <Progress value={jobProgress} className="w-full" />
+                <p className="text-sm text-gray-400">{jobStatus}</p>
+                {isPreviewMode && (
+                  <p className="text-xs text-amber-400">
+                    Note: This is a simulated process in preview mode.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-          {jobError && (
-            <Alert variant="destructive" className="mb-4">
-              <AlertCircle className="h-4 w-4" />
-              <AlertTitle>Error</AlertTitle>
-              <AlertDescription>{jobError}</AlertDescription>
-            </Alert>
-          )}
+        {/* Error Display */}
+        {jobError && (
+          <Alert variant="destructive" className="bg-red-900 border-red-700">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{jobError}</AlertDescription>
+          </Alert>
+        )}
 
-          {downloadUrl && (
-            <div className="flex flex-col items-center space-y-4">
-              <p className="text-green-600 font-medium">
-                {isPreviewMode ? "Your simulated reaction video is ready!" : "Your reaction video is ready!"}
-              </p>
-              <Button asChild className="bg-blue-600 text-white hover:bg-blue-700">
-                <a href={downloadUrl} download="reaction-video.mp4">
-                  <Download className="mr-2 h-4 w-4" />
-                  {isPreviewMode ? "Download Sample Video" : "Download Video"}
-                </a>
-              </Button>
+        {/* Download Link */}
+        {downloadUrl && (
+          <Alert className="bg-green-900 border-green-700">
+            <Download className="h-4 w-4" />
+            <AlertTitle>Ready for Download</AlertTitle>
+            <AlertDescription>
+              <a
+                href={downloadUrl}
+                className="text-green-300 hover:text-green-200 underline"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {isPreviewMode ? "Download Sample Video" : "Download Video"}
+              </a>
               {isPreviewMode && (
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-400 mt-2">
                   Note: In preview mode, this will download a sample file, not an actual processed video.
                 </p>
               )}
+            </AlertDescription>
+          </Alert>
+        )}
+      </div>
+
+      {/* Right Panel - Preview */}
+      <div>
+        <Card className="bg-gray-800 border-gray-700 h-full">
+          <CardHeader>
+            <CardTitle className="text-white">Preview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="border-2 border-dashed border-gray-600 rounded-lg p-4 flex flex-col items-center justify-center">
+              <div className="w-full max-w-[180px] aspect-[9/16] bg-gray-700 rounded-md overflow-hidden">
+                <div className="w-full h-1/2 bg-gray-600 flex items-center justify-center text-gray-300 text-xs">
+                  Top Video
+                </div>
+                <div className="w-full h-1/2 bg-gray-500 flex items-center justify-center text-gray-200 text-xs">
+                  Bottom Video
+                </div>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">9:16 Vertical Format (1080x1920)</p>
             </div>
-          )}
-        </div>
-      )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }
