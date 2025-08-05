@@ -254,7 +254,7 @@ check_dependencies() {
 create_workspace() {
     local workspace=\$(mktemp -d)
     log_info "Created workspace: \$workspace"
-    echo \$workspace
+    echo "\$workspace"
 }
 
 # Download YouTube video and get duration
@@ -390,10 +390,10 @@ create_sequential_montage() {
     
     # Find all clip files and add them to the list
     local clip_count=0
-    for clip_file in \${workspace}/clip_*.mp4; do
+    for clip_file in clip_*.mp4; do
         if [ -f "\$clip_file" ]; then
             echo "file '\$clip_file'" >> "\$clip_list"
-            log_info "✓ Including clip: \$(basename \$clip_file)"
+            log_info "✓ Including clip: \$clip_file"
             ((clip_count++))
         fi
     done
@@ -438,8 +438,8 @@ create_sequential_montage() {
     log_info "Creating montage variation 1..."
     log_info "Target resolution: \$target_resolution"
     
-    # Execute FFmpeg command
-    eval \$ffmpeg_cmd
+    # Execute FFmpeg command (redirect stderr to avoid mixing with command)
+    eval \$ffmpeg_cmd 2>/dev/null
     
     if [ \$? -eq 0 ]; then
         log_success "Montage created: \${workspace}/\${script_name}_v01.mp4"
@@ -466,7 +466,7 @@ create_stacked_montage() {
     
     # Get all clip files
     local clips=()
-    for clip_file in \${workspace}/clip_*.mp4; do
+    for clip_file in clip_*.mp4; do
         if [ -f "\$clip_file" ]; then
             clips+=("\$clip_file")
         fi
@@ -517,8 +517,8 @@ create_stacked_montage() {
     log_info "Creating stacked montage..."
     log_info "Target resolution: \$target_resolution"
     
-    # Execute FFmpeg command
-    eval \$ffmpeg_cmd
+    # Execute FFmpeg command (redirect stderr to avoid mixing with command)
+    eval \$ffmpeg_cmd 2>/dev/null
     
     if [ \$? -eq 0 ]; then
         log_success "Stacked montage created: \${workspace}/\${script_name}_v01.mp4"
@@ -536,7 +536,14 @@ main() {
     
     # Create workspace
     local workspace=\$(create_workspace)
-    cd "\$workspace"
+    if [ ! -d "\$workspace" ]; then
+        log_error "Failed to create workspace"
+        exit 1
+    fi
+    cd "\$workspace" || {
+        log_error "Failed to change to workspace directory"
+        exit 1
+    }
     
     # Configuration
     local script_name="${scriptName}"
