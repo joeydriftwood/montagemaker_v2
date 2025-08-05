@@ -536,7 +536,7 @@ main() {
     
     # Create workspace
     local workspace=\$(create_workspace)
-    if [ ! -d "\$workspace" ]; then
+    if [ -z "\$workspace" ] || [ ! -d "\$workspace" ]; then
         log_error "Failed to create workspace"
         exit 1
     fi
