@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -30,6 +30,10 @@ export function MontageGenerator() {
   const [startCutAt, setStartCutAt] = useState<string>("0")
   const [endCutAt, setEndCutAt] = useState<string>("60")
   const [variations, setVariations] = useState<string>("1")
+
+  // Processing mode
+  const [useCloudProcessing, setUseCloudProcessing] = useState<boolean>(false)
+  const pollIntervalRef = useRef<number | null>(null)
 
   // Job state
   const [isGenerating, setIsGenerating] = useState<boolean>(false)
@@ -61,6 +65,81 @@ export function MontageGenerator() {
     setVideoLinks(newLinks)
   }
 
+  // Poll job status for cloud processing
+  const pollJobStatus = async (jobId: string) => {
+    pollIntervalRef.current = window.setInterval(async () => {
+      try {
+        const response = await fetch(`/api/job-status?jobId=${jobId}`)
+        const data = await response.json()
+
+        if (response.ok) {
+          setJobProgress(data.progress)
+          
+          if (data.status === "completed") {
+            setIsGenerating(false)
+            setJobStatus("completed")
+            setDownloadUrl(data.downloadUrl)
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current)
+              pollIntervalRef.current = null
+            }
+            toast({
+              title: "Success",
+              description: "Your montage is ready to download!",
+            })
+          } else if (data.status === "failed") {
+            setIsGenerating(false)
+            setJobStatus("failed")
+            setJobError(data.error || "Processing failed")
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current)
+              pollIntervalRef.current = null
+            }
+            toast({
+              title: "Error",
+              description: data.error || "Processing failed",
+              variant: "destructive",
+            })
+          }
+        } else {
+          throw new Error(data.error || "Failed to get job status")
+        }
+      } catch (error) {
+        console.error("Error polling job status:", error)
+        setIsGenerating(false)
+        setJobStatus("failed")
+        setJobError("Failed to check job status")
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current)
+          pollIntervalRef.current = null
+        }
+        toast({
+          title: "Error",
+          description: "Failed to check job status",
+          variant: "destructive",
+        })
+      }
+    }, 2000) // Poll every 2 seconds
+
+    // Stop polling after 10 minutes
+    setTimeout(() => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+        pollIntervalRef.current = null
+      }
+      if (jobStatus === "processing") {
+        setIsGenerating(false)
+        setJobStatus("failed")
+        setJobError("Processing timed out")
+        toast({
+          title: "Error",
+          description: "Processing timed out",
+          variant: "destructive",
+        })
+      }
+    }, 600000) // 10 minutes
+  }
+
   // Generate montage on the server
   const generateMontage = async () => {
     if (videoLinks[0].trim() === "") {
@@ -80,9 +159,10 @@ export function MontageGenerator() {
     setDownloadUrl("")
 
     try {
-      console.log("Sending request to /api/generate-montage")
+      const endpoint = useCloudProcessing ? "/api/generate-montage-cloud" : "/api/generate-montage"
+      console.log(`Sending request to ${endpoint}`)
 
-      const response = await fetch("/api/generate-montage", {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -123,22 +203,30 @@ export function MontageGenerator() {
         throw new Error(data.error || "Failed to generate montage")
       }
 
-      setIsGenerating(false)
-      setJobStatus("completed")
-      setDownloadUrl(data.downloadUrl)
-      toast({
-        title: "Success",
-        description: "Your montage is ready to download!",
-      })
+      if (useCloudProcessing) {
+        // Cloud processing - start polling for job status
+        setJobId(data.jobId)
+        setJobStatus("processing")
+        pollJobStatus(data.jobId)
+      } else {
+        // Local script generation - download the script
+        setIsGenerating(false)
+        setJobStatus("completed")
+        setDownloadUrl(data.downloadUrl)
+        toast({
+          title: "Success",
+          description: "Your montage script is ready to download!",
+        })
 
-      // Trigger download
-      if (data.downloadUrl) {
-        const a = document.createElement("a")
-        a.href = data.downloadUrl
-        a.download = customFilename || "montage.mp4"
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
+        // Trigger download
+        if (data.downloadUrl) {
+          const a = document.createElement("a")
+          a.href = data.downloadUrl
+          a.download = data.scriptName || "montage_script.sh"
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+        }
       }
     } catch (error) {
       console.error("Error generating montage:", error)
@@ -186,6 +274,27 @@ export function MontageGenerator() {
                 <Plus className="h-4 w-4 mr-2" />
                 Add Another Video
               </Button>
+            </div>
+
+            {/* Processing Mode */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-medium">Processing Mode</h3>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="cloud-processing"
+                  checked={useCloudProcessing}
+                  onCheckedChange={setUseCloudProcessing}
+                />
+                <Label htmlFor="cloud-processing">
+                  {useCloudProcessing ? "Cloud Processing" : "Local Script Generation"}
+                </Label>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {useCloudProcessing 
+                  ? "Process videos on our servers and download the finished montage directly."
+                  : "Generate a script to download and run locally on your computer."
+                }
+              </p>
             </div>
 
             {/* Montage Settings */}

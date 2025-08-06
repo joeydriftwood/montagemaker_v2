@@ -4,6 +4,7 @@ import fs from "fs"
 import path from "path"
 import os from "os"
 import { put } from "@vercel/blob"
+import ytdlp from "yt-dlp-exec"
 
 const execAsync = promisify(exec)
 
@@ -53,13 +54,39 @@ async function setupYtDlp(): Promise<string> {
   return ytDlpPath
 }
 
+// Function to get video duration
+export async function getVideoDuration(url: string): Promise<number> {
+  if (url.includes("youtube.com") || url.includes("youtu.be")) {
+    // YouTube URL - use yt-dlp-exec
+    const duration = await ytdlp(url, {
+      getDuration: true,
+    })
+    return parseInt(duration) || 60
+  } else {
+    // For other URLs, we'll need to download a small sample
+    const tempFile = path.join(os.tmpdir(), `temp_duration_${Date.now()}.mp4`)
+    try {
+      await execAsync(`curl -L "${url}" -o "${tempFile}" -r 0-1048576`)
+      const duration = await execAsync(`ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${tempFile}"`)
+      fs.unlinkSync(tempFile)
+      return parseInt(duration.stdout) || 60
+    } catch (error) {
+      if (fs.existsSync(tempFile)) {
+        fs.unlinkSync(tempFile)
+      }
+      return 60 // Default duration
+    }
+  }
+}
+
 // Function to download a video (YouTube or direct URL)
 export async function downloadVideo(url: string, outputPath: string): Promise<void> {
-  const ytDlpPath = await setupYtDlp()
-
   if (url.includes("youtube.com") || url.includes("youtu.be")) {
-    // YouTube URL
-    await execAsync(`${ytDlpPath} -f "best[height<=720]" -o "${outputPath}" "${url}"`)
+    // YouTube URL - use yt-dlp-exec
+    await ytdlp(url, {
+      output: outputPath,
+      format: "best[height<=720]",
+    })
   } else {
     // Direct video URL
     await execAsync(`curl -L "${url}" -o "${outputPath}"`)

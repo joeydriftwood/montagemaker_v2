@@ -153,9 +153,39 @@ download_clips() {
         if [[ "\$url" == *"youtube.com"* ]] || [[ "\$url" == *"youtu.be"* ]]; then
             # Get duration from YouTube without downloading
             if command -v yt-dlp &> /dev/null; then
-                video_duration=\$(yt-dlp --get-duration "\$url" 2>/dev/null | cut -d: -f1,2 | awk -F: '{print \$1*60 + \$2}' | tail -1 || echo "0")
+                # Parse duration and convert to seconds, handling leading zeros properly
+                local duration_str=\$(yt-dlp --get-duration "\$url" 2>/dev/null || echo "0:00")
+                if [[ "\$duration_str" =~ ^([0-9]+):([0-9]+):([0-9]+)$ ]]; then
+                    # HH:MM:SS format
+                    local hours=\${BASH_REMATCH[1]#0}  # Remove leading zeros
+                    local minutes=\${BASH_REMATCH[2]#0}  # Remove leading zeros
+                    local secs=\${BASH_REMATCH[3]#0}     # Remove leading zeros
+                    video_duration=\$((hours * 3600 + minutes * 60 + secs))
+                elif [[ "\$duration_str" =~ ^([0-9]+):([0-9]+)$ ]]; then
+                    # MM:SS format
+                    local minutes=\${BASH_REMATCH[1]#0}  # Remove leading zeros
+                    local secs=\${BASH_REMATCH[2]#0}     # Remove leading zeros
+                    video_duration=\$((minutes * 60 + secs))
+                else
+                    video_duration=0
+                fi
             else
-                video_duration=\$(youtube-dl --get-duration "\$url" 2>/dev/null | cut -d: -f1,2 | awk -F: '{print \$1*60 + \$2}' | tail -1 || echo "0")
+                # Parse duration and convert to seconds, handling leading zeros properly
+                local duration_str=\$(youtube-dl --get-duration "\$url" 2>/dev/null || echo "0:00")
+                if [[ "\$duration_str" =~ ^([0-9]+):([0-9]+):([0-9]+)$ ]]; then
+                    # HH:MM:SS format
+                    local hours=\${BASH_REMATCH[1]#0}  # Remove leading zeros
+                    local minutes=\${BASH_REMATCH[2]#0}  # Remove leading zeros
+                    local secs=\${BASH_REMATCH[3]#0}     # Remove leading zeros
+                    video_duration=\$((hours * 3600 + minutes * 60 + secs))
+                elif [[ "\$duration_str" =~ ^([0-9]+):([0-9]+)$ ]]; then
+                    # MM:SS format
+                    local minutes=\${BASH_REMATCH[1]#0}  # Remove leading zeros
+                    local secs=\${BASH_REMATCH[2]#0}     # Remove leading zeros
+                    video_duration=\$((minutes * 60 + secs))
+                else
+                    video_duration=0
+                fi
             fi
         else
             # For other sources, we'll need to download a small sample to get duration
@@ -173,7 +203,10 @@ download_clips() {
                 curl -L -f "\$url" -o "\$temp_file" -r 0-1048576 2>/dev/null || true
             fi
             if [[ -f "\$temp_file" ]]; then
-                video_duration=\$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "\$temp_file" 2>/dev/null | cut -d. -f1 2>/dev/null || echo "0")
+                # Get duration from ffprobe and ensure it's a valid integer
+                local duration_raw=\$(ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "\$temp_file" 2>/dev/null || echo "0")
+                # Convert to integer seconds, handling decimal values
+                video_duration=\$(printf "%.0f" "\$duration_raw" 2>/dev/null || echo "0")
                 rm -f "\$temp_file"
             fi
         fi
