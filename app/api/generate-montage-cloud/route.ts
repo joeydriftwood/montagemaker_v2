@@ -92,7 +92,7 @@ async function processMontageJob(jobId: string, params: any) {
 
     updateJob(jobId, { status: 'processing', progress: 5 });
 
-    // Download videos
+    // Download videos (focus on direct URLs for cloud processing)
     const videoFiles: string[] = [];
     for (let i = 0; i < params.videoUrls.length; i++) {
       const url = params.videoUrls[i];
@@ -101,6 +101,12 @@ async function processMontageJob(jobId: string, params: any) {
       updateJob(jobId, { progress: 10 + (i * 10) });
       
       try {
+        // For cloud processing, prefer direct video URLs
+        if (url.includes("youtube.com") || url.includes("youtu.be")) {
+          console.log(`Skipping YouTube URL in cloud processing: ${url}`);
+          continue; // Skip YouTube URLs in cloud processing for now
+        }
+        
         await downloadVideo(url, videoPath);
         videoFiles.push(videoPath);
       } catch (error) {

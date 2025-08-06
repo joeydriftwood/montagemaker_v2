@@ -4,7 +4,6 @@ import fs from "fs"
 import path from "path"
 import os from "os"
 import { put } from "@vercel/blob"
-import ytdlp from "yt-dlp-exec"
 
 const execAsync = promisify(exec)
 
@@ -57,11 +56,27 @@ async function setupYtDlp(): Promise<string> {
 // Function to get video duration
 export async function getVideoDuration(url: string): Promise<number> {
   if (url.includes("youtube.com") || url.includes("youtu.be")) {
-    // YouTube URL - use yt-dlp-exec
-    const duration = await ytdlp(url, {
-      getDuration: true,
-    })
-    return parseInt(duration) || 60
+    // YouTube URL - use yt-dlp binary
+    const ytDlpPath = await setupYtDlp()
+    try {
+      const duration = await execAsync(`${ytDlpPath} --get-duration "${url}"`)
+      // Parse duration string (e.g., "3:45" or "1:23:45")
+      const durationStr = duration.stdout.trim()
+      if (durationStr.includes(':')) {
+        const parts = durationStr.split(':').map(part => parseInt(part.replace(/^0+/, '') || '0'))
+        if (parts.length === 2) {
+          // MM:SS format
+          return parts[0] * 60 + parts[1]
+        } else if (parts.length === 3) {
+          // HH:MM:SS format
+          return parts[0] * 3600 + parts[1] * 60 + parts[2]
+        }
+      }
+      return parseInt(durationStr) || 60
+    } catch (error) {
+      console.error('Error getting duration:', error)
+      return 60 // Default duration
+    }
   } else {
     // For other URLs, we'll need to download a small sample
     const tempFile = path.join(os.tmpdir(), `temp_duration_${Date.now()}.mp4`)
@@ -82,11 +97,9 @@ export async function getVideoDuration(url: string): Promise<number> {
 // Function to download a video (YouTube or direct URL)
 export async function downloadVideo(url: string, outputPath: string): Promise<void> {
   if (url.includes("youtube.com") || url.includes("youtu.be")) {
-    // YouTube URL - use yt-dlp-exec
-    await ytdlp(url, {
-      output: outputPath,
-      format: "best[height<=720]",
-    })
+    // YouTube URL - use yt-dlp binary
+    const ytDlpPath = await setupYtDlp()
+    await execAsync(`${ytDlpPath} -f "best[height<=720]" -o "${outputPath}" "${url}"`)
   } else {
     // Direct video URL
     await execAsync(`curl -L "${url}" -o "${outputPath}"`)

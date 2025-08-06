@@ -291,7 +291,7 @@ export function MontageGenerator() {
               </div>
               <p className="text-sm text-muted-foreground">
                 {useCloudProcessing 
-                  ? "Process videos on our servers and download the finished montage directly."
+                  ? "Process videos on our servers and download the finished montage directly. Note: YouTube URLs are not supported in cloud processing."
                   : "Generate a script to download and run locally on your computer."
                 }
               </p>
