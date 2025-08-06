@@ -209,23 +209,25 @@ export function MontageGenerator() {
         setJobStatus("processing")
         pollJobStatus(data.jobId)
       } else {
-        // Local script generation - download the script
+        // Local script generation - create and download the script
         setIsGenerating(false)
         setJobStatus("completed")
-        setDownloadUrl(data.downloadUrl)
         toast({
           title: "Success",
           description: "Your montage script is ready to download!",
         })
 
-        // Trigger download
-        if (data.downloadUrl) {
+        // Create and download the script file
+        if (data.scriptContent) {
+          const blob = new Blob([data.scriptContent], { type: 'text/plain' })
+          const url = URL.createObjectURL(blob)
           const a = document.createElement("a")
-          a.href = data.downloadUrl
+          a.href = url
           a.download = data.scriptName || "montage_script.sh"
           document.body.appendChild(a)
           a.click()
           document.body.removeChild(a)
+          URL.revokeObjectURL(url)
         }
       }
     } catch (error) {

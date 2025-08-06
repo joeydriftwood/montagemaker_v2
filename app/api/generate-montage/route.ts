@@ -44,13 +44,9 @@ export async function POST(req: NextRequest) {
 
     // Generate unique script name
     const scriptName = `${customFilename}_${Date.now()}.sh`;
-    const scriptPath = path.join(process.cwd(), "public", "downloads", scriptName);
-
-    // Create downloads directory if it doesn't exist
-    const downloadsDir = path.dirname(scriptPath);
-    if (!fs.existsSync(downloadsDir)) {
-      fs.mkdirSync(downloadsDir, { recursive: true });
-    }
+    
+    // In Vercel environment, we can't write to filesystem, so we'll return the script content directly
+    // The client will handle creating and downloading the file
 
     // Generate the bash script content
     const scriptContent = `#!/bin/bash
@@ -559,14 +555,11 @@ main() {
 main "\$@"
 `;
 
-    // Write the script to file
-    fs.writeFileSync(scriptPath, scriptContent);
-    fs.chmodSync(scriptPath, 0o755); // Make executable
-
+    // Return the script content directly for client-side download
     return NextResponse.json({ 
       success: true, 
       scriptName,
-      downloadUrl: `/downloads/${scriptName}`,
+      scriptContent,
       message: "Montage script generated successfully. Download and run it to create your montage."
     });
 
