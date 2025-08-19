@@ -92,23 +92,22 @@ async function processMontageJob(jobId: string, params: any) {
 
     updateJob(jobId, { status: 'processing', progress: 5 });
 
-    // Download videos (focus on direct URLs for cloud processing)
+    // Download videos
     const videoFiles: string[] = [];
+    console.log(`Starting download of ${params.videoUrls.length} videos`);
+    
     for (let i = 0; i < params.videoUrls.length; i++) {
       const url = params.videoUrls[i];
       const videoPath = path.join(workDir, `source_${i}.mp4`);
       
+      console.log(`Downloading video ${i + 1}/${params.videoUrls.length}: ${url}`);
       updateJob(jobId, { progress: 10 + (i * 10) });
       
       try {
-        // For cloud processing, prefer direct video URLs
-        if (url.includes("youtube.com") || url.includes("youtu.be")) {
-          console.log(`Skipping YouTube URL in cloud processing: ${url}`);
-          continue; // Skip YouTube URLs in cloud processing for now
-        }
-        
+        // Download video (including YouTube URLs)
         await downloadVideo(url, videoPath);
         videoFiles.push(videoPath);
+        console.log(`Successfully downloaded video ${i}: ${url}`);
       } catch (error) {
         console.error(`Failed to download video ${i}:`, error);
         // Continue with other videos
@@ -116,9 +115,10 @@ async function processMontageJob(jobId: string, params: any) {
     }
 
     if (videoFiles.length === 0) {
-      throw new Error("No videos were successfully downloaded");
+      throw new Error("No videos were successfully downloaded. Please check that your video URLs are valid and accessible.");
     }
 
+    console.log(`Successfully downloaded ${videoFiles.length} videos`);
     updateJob(jobId, { progress: 40 });
 
     // Generate clips for each variation

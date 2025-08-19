@@ -42,6 +42,8 @@ export function MontageGenerator() {
   const [jobProgress, setJobProgress] = useState<number>(0)
   const [jobError, setJobError] = useState<string>("")
   const [downloadUrl, setDownloadUrl] = useState<string>("")
+  const [scriptDownloaded, setScriptDownloaded] = useState<boolean>(false)
+  const [scriptName, setScriptName] = useState<string | null>(null)
 
   // Add video link field
   const addVideoLink = () => {
@@ -63,6 +65,42 @@ export function MontageGenerator() {
     const newLinks = [...videoLinks]
     newLinks[index] = value
     setVideoLinks(newLinks)
+  }
+
+  // Run script function
+  const runScript = async () => {
+    try {
+      // Check if we're on macOS or Windows
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0
+      const isWindows = navigator.platform.toUpperCase().indexOf('WIN') >= 0
+      
+      if (isMac) {
+        // For macOS, we can try to open Terminal and run the script
+        toast({
+          title: "Instructions",
+          description: "Please open Terminal and run: chmod +x ~/Downloads/" + scriptName + " && ~/Downloads/" + scriptName,
+        })
+      } else if (isWindows) {
+        // For Windows, provide instructions for PowerShell
+        toast({
+          title: "Instructions",
+          description: "Please open PowerShell and run: cd ~/Downloads && .\\" + scriptName?.replace('.sh', '.bat'),
+        })
+      } else {
+        // For other platforms
+        toast({
+          title: "Instructions",
+          description: "Please open your terminal and run: chmod +x ~/Downloads/" + scriptName + " && ~/Downloads/" + scriptName,
+        })
+      }
+    } catch (error) {
+      console.error("Error providing script instructions:", error)
+      toast({
+        title: "Error",
+        description: "Failed to provide script instructions",
+        variant: "destructive",
+      })
+    }
   }
 
   // Poll job status for cloud processing
@@ -223,11 +261,16 @@ export function MontageGenerator() {
           const url = URL.createObjectURL(blob)
           const a = document.createElement("a")
           a.href = url
-          a.download = data.scriptName || "montage_script.sh"
+          const scriptFileName = data.scriptName || "montage_script.sh"
+          a.download = scriptFileName
           document.body.appendChild(a)
           a.click()
           document.body.removeChild(a)
           URL.revokeObjectURL(url)
+          
+          // Set script info for run button
+          setScriptName(scriptFileName)
+          setScriptDownloaded(true)
         }
       }
     } catch (error) {
@@ -293,7 +336,7 @@ export function MontageGenerator() {
               </div>
               <p className="text-sm text-muted-foreground">
                 {useCloudProcessing 
-                  ? "Process videos on our servers and download the finished montage directly. Note: YouTube URLs are not supported in cloud processing."
+                  ? "Process videos on our servers and download the finished montage directly."
                   : "Generate a script to download and run locally on your computer."
                 }
               </p>
@@ -496,6 +539,16 @@ export function MontageGenerator() {
                     <Download className="mr-2 h-4 w-4" />
                     Download Montage
                   </a>
+                </Button>
+              </div>
+            )}
+
+            {scriptDownloaded && !useCloudProcessing && (
+              <div className="flex flex-col items-center space-y-2">
+                <p className="text-green-600 font-medium">Script downloaded successfully!</p>
+                <Button onClick={runScript} className="bg-green-600 hover:bg-green-700">
+                  <Download className="mr-2 h-4 w-4" />
+                  Run Script Instructions
                 </Button>
               </div>
             )}
