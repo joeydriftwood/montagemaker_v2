@@ -11,6 +11,7 @@ import { Progress } from "@/components/ui/progress"
 import { AlertCircle, Download, Loader2, Plus, Trash2 } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { useToast } from "@/hooks/use-toast"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 
 export function MontageGenerator() {
   const { toast } = useToast()
@@ -65,6 +66,51 @@ export function MontageGenerator() {
     const newLinks = [...videoLinks]
     newLinks[index] = value
     setVideoLinks(newLinks)
+    
+    // Auto-detect video length if it's a valid URL (YouTube or Dropbox)
+    if (value && (value.includes('youtube.com') || value.includes('youtu.be') || value.includes('dropbox.com'))) {
+      detectVideoLength(value)
+    }
+  }
+
+  // Auto-detect video length
+  const detectVideoLength = async (url: string) => {
+    try {
+      const response = await fetch('/api/get-video-duration', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url }),
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        if (data.duration) {
+          // Set endCutAt to 0 to use the entire video (0 seconds from the end = use full video)
+          setEndCutAt("0")
+          console.log(`Auto-detected video length: ${data.duration} seconds, set End Cut At to 0 (use full video)`)
+          toast({
+            title: "Video Duration Detected",
+            description: `Auto-detected ${data.duration} seconds. Set to use entire video.`,
+          })
+        }
+      } else {
+        console.log('Could not auto-detect video length: API error')
+        toast({
+          title: "Duration Detection Failed",
+          description: "Could not auto-detect video length. Please set End Cut At manually.",
+          variant: "destructive",
+        })
+      }
+    } catch (error) {
+      console.log('Could not auto-detect video length:', error)
+      toast({
+        title: "Duration Detection Failed",
+        description: "Could not auto-detect video length. Please set End Cut At manually.",
+        variant: "destructive",
+      })
+    }
   }
 
   // Run script function
@@ -423,7 +469,16 @@ export function MontageGenerator() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="endCutAt">End Cut At (seconds)</Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Label htmlFor="endCutAt" className="cursor-help">End Cut At (seconds from end)</Label>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        <p>Set to 0 to use the entire video, or specify seconds to cut from the end</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
                   <Input
                     id="endCutAt"
                     type="number"

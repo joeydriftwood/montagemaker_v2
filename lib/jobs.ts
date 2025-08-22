@@ -12,6 +12,7 @@ export interface Job {
   progress: number;
   error?: string;
   downloadUrl?: string;
+  allDownloadUrls?: string[];
   createdAt: string;
   params: any;
 }

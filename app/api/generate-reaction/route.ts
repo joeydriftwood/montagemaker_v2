@@ -1,5 +1,13 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { randomUUID } from "crypto"
+import { exec } from "child_process"
+import { promisify } from "util"
+import * as fs from "fs"
+import * as path from "path"
+import * as os from "os"
+import { downloadVideo, uploadToBlob } from "@/lib/ffmpeg-utils"
+
+const execAsync = promisify(exec)
 
 // In-memory job storage (would use a database in production)
 export const reactionJobs = new Map<
@@ -63,7 +71,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Simulate processing a reaction video job
+// Process a reaction video job
 async function processReactionJob(
   jobId: string,
   options: {
@@ -76,41 +84,70 @@ async function processReactionJob(
     bottomVolume: number
   },
 ) {
+  const workDir = path.join(os.tmpdir(), `reaction-${jobId}`)
+  
   try {
+    // Create working directory
+    fs.mkdirSync(workDir, { recursive: true })
+    
     // Update job status to processing
     reactionJobs.set(jobId, {
       status: "processing",
       progress: 10,
     })
 
-    // Simulate processing steps
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    // Download top video
+    console.log(`Downloading top video: ${options.topVideo}`)
+    const topVideoPath = path.join(workDir, "top_video.mp4")
+    await downloadVideo(options.topVideo, topVideoPath)
+    
     reactionJobs.set(jobId, { status: "processing", progress: 30 })
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    // Download bottom video
+    console.log(`Downloading bottom video: ${options.bottomVideo}`)
+    const bottomVideoPath = path.join(workDir, "bottom_video.mp4")
+    await downloadVideo(options.bottomVideo, bottomVideoPath)
+    
     reactionJobs.set(jobId, { status: "processing", progress: 50 })
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    reactionJobs.set(jobId, { status: "processing", progress: 70 })
+    // Create reaction video using FFmpeg
+    console.log("Creating reaction video...")
+    const outputPath = path.join(workDir, "reaction_video.mp4")
+    
+    // Build FFmpeg command for side-by-side reaction video
+    const ffmpegCmd = `ffmpeg -y \
+      -ss ${options.topStartTime} -i "${topVideoPath}" \
+      -ss ${options.bottomStartTime} -i "${bottomVideoPath}" \
+      -filter_complex "[0:v]scale=640:360,setpts=PTS-STARTPTS[top];[1:v]scale=640:360,setpts=PTS-STARTPTS[bottom];[top][bottom]vstack=inputs=2" \
+      -map "[top]" -map "[bottom]" \
+      -filter:a "[0:a]volume=${options.topVolume}[top_audio];[1:a]volume=${options.bottomVolume}[bottom_audio];[top_audio][bottom_audio]amix=inputs=2:duration=longest" \
+      -t ${options.duration} \
+      -c:v libx264 -c:a aac -pix_fmt yuv420p "${outputPath}"`
+    
+    console.log(`Executing FFmpeg command: ${ffmpegCmd}`)
+    await execAsync(ffmpegCmd)
+    
+    reactionJobs.set(jobId, { status: "processing", progress: 80 })
 
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    // Upload the result
+    console.log("Uploading reaction video...")
+    const fileName = `reaction_${jobId}_${Date.now()}.mp4`
+    const downloadUrl = await uploadToBlob(outputPath, fileName)
+    
     reactionJobs.set(jobId, { status: "processing", progress: 90 })
 
-    // Simulate completion
-    await new Promise((resolve) => setTimeout(resolve, 500))
-
-    // Update job status to completed with a fake download URL
+    // Update job status to completed
     reactionJobs.set(jobId, {
       status: "completed",
       progress: 100,
-      downloadUrl: `https://example.com/reactions/${jobId}/reaction-video.mp4`,
+      downloadUrl: downloadUrl,
     })
 
-    // In a real implementation, you would:
-    // 1. Download the videos
-    // 2. Process them with FFmpeg
-    // 3. Upload the result to storage
-    // 4. Return the download URL
+    console.log(`Reaction video completed: ${downloadUrl}`)
+
+    // Clean up temp files
+    fs.rmSync(workDir, { recursive: true, force: true })
+    
   } catch (error) {
     console.error("Error processing reaction job:", error)
     reactionJobs.set(jobId, {
@@ -118,5 +155,14 @@ async function processReactionJob(
       progress: 0,
       error: error instanceof Error ? error.message : "Unknown error",
     })
+    
+    // Clean up temp files on error
+    try {
+      if (fs.existsSync(workDir)) {
+        fs.rmSync(workDir, { recursive: true, force: true })
+      }
+    } catch (cleanupError) {
+      console.error("Error cleaning up temp files:", cleanupError)
+    }
   }
 }

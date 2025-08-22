@@ -15,8 +15,10 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Job not found" }, { status: 404 });
     }
 
-    // Simulate progress on each poll
-    if ((job.status === 'pending' || job.status === 'processing') && job.progress < 100) {
+    // Don't override the job status if it's already being processed by cloud processing
+    // Only simulate progress for local jobs or if no real progress is being made
+    if (job.status === 'pending' && job.progress === 0) {
+      // This is likely a local job, simulate progress
       let newProgress = Math.min(job.progress + 10, 100);
       let newStatus: 'pending' | 'processing' | 'completed' | 'failed' = newProgress >= 100 ? 'completed' : 'processing';
       job = updateJob(jobId, {
@@ -35,6 +37,7 @@ export async function GET(req: NextRequest) {
       progress: job.progress,
       error: job.error,
       downloadUrl: job.downloadUrl,
+      allDownloadUrls: job.allDownloadUrls,
     });
   } catch (err) {
     console.error("Error in job-status:", err);
